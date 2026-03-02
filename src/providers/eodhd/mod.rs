@@ -23,9 +23,15 @@ use tokio_util::sync::CancellationToken;
 
 /// Compute the resume date from cached data for a given option type.
 ///
-/// Returns the day after the latest quote_date for this option type,
+/// Returns the next trading day after the latest quote_date for this option type,
 /// or None if no matching data exists.
-fn compute_resume_date(df: &DataFrame, option_type: &str) -> Option<chrono::NaiveDate> {
+///
+/// Uses prices cache to skip weekends/holidays (only trading days have price data).
+fn compute_resume_date(
+    df: &DataFrame,
+    option_type: &str,
+    prices_df: Option<&DataFrame>,
+) -> Option<chrono::NaiveDate> {
     // Get the option_type column and filter for matching rows
     let type_col = df.column("option_type").ok()?;
     let type_str = type_col.str().ok()?;
@@ -59,13 +65,51 @@ fn compute_resume_date(df: &DataFrame, option_type: &str) -> Option<chrono::Naiv
         }
     }
 
-    // Return the day after the max_date
-    max_date.map(|d| {
-        let resume = d + Duration::days(1);
+    // Find the next trading day after max_date using prices cache
+    max_date.and_then(|d| {
+        let candidate = d + Duration::days(1);
+
+        // If prices cache available, find next trading day (skip weekends/holidays)
+        if let Some(prices) = prices_df {
+            if let Ok(price_date_col) = prices.column("date") {
+                if let Ok(price_dates) = price_date_col.date() {
+                    let price_dates_phys = &price_dates.phys;
+
+                    // Collect all available trading dates
+                    let trading_dates: Vec<chrono::NaiveDate> = price_dates_phys
+                        .iter()
+                        .filter_map(|d_i32| {
+                            d_i32.and_then(|di| {
+                                chrono::NaiveDate::from_num_days_from_ce_opt(di + 719_162)
+                            })
+                        })
+                        .collect();
+
+                    // Find first trading date >= candidate
+                    for trading_date in trading_dates {
+                        if trading_date >= candidate {
+                            tracing::info!(
+                                "Resuming {option_type} options from {trading_date} (latest cached: {d}, \
+                                 skipping weekends/holidays)"
+                            );
+                            return Some(trading_date);
+                        }
+                    }
+
+                    // No future trading date found in prices cache
+                    tracing::warn!(
+                        "No future trading date found in prices cache after {d}. \
+                         Resuming from calendar date {candidate} (may skip to next trading day on retry)"
+                    );
+                }
+            }
+        }
+
+        // Fallback: return calendar day + 1 (market closed on weekends, so this will be caught on retry)
         tracing::info!(
-            "Resuming {option_type} options from {resume} (latest cached: {d})"
+            "Resuming {option_type} options from {candidate} (latest cached: {d})"
         );
-        resume
+        Some(candidate)
     })
 }
 
@@ -120,6 +164,13 @@ impl crate::providers::DataProvider for EodhdProvider {
             .flatten()
             .and_then(|lf| lf.collect().ok());
 
+        // Load prices cache for weekend-aware trading day detection
+        let prices_df = cache.read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
+            .await
+            .ok()
+            .flatten()
+            .and_then(|lf| lf.collect().ok());
+
         for option_type in &["call", "put"] {
             let pb = mp.add(ProgressBar::new(0));
             pb.set_style(bar_style.clone());
@@ -128,7 +179,7 @@ impl crate::providers::DataProvider for EodhdProvider {
             // Determine resume point from cache
             let resume_from = if let Some(ref df) = cached_df {
                 // Filter to this option type and find max quote_date
-                compute_resume_date(df, option_type)
+                compute_resume_date(df, option_type, prices_df.as_ref())
             } else {
                 None
             };
