@@ -47,8 +47,8 @@ pub enum DownloadTarget {
         /// Symbols to download (e.g., SPY, QQQ)
         symbols: Vec<String>,
 
-        /// Period for historical data: 1mo, 3mo, 6mo, 1y, 5y, max
-        #[arg(long, default_value = "1y")]
+        /// Period for historical data: 1mo, 3mo, 6mo, 1y, 5y
+        #[arg(long, default_value = "5y")]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
@@ -65,8 +65,8 @@ pub enum DownloadTarget {
         #[arg(long, value_parser = parse_naive_date)]
         from: Option<NaiveDate>,
 
-        /// Period for historical prices: 1mo, 3mo, 6mo, 1y, 5y, max
-        #[arg(long, default_value = "1y")]
+        /// Period for historical prices: 1mo, 3mo, 6mo, 1y, 5y
+        #[arg(long, default_value = "5y")]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
