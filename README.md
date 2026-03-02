@@ -19,10 +19,10 @@ cd inflow
 
 # Create a ~/.env file with your EODHD API key (for options data)
 echo "EODHD_API_KEY=your_api_key_here" >> ~/.env
+cargo run -- download options SPY
 
 # Download prices (no API key needed) and options
 cargo run -- download prices SPY
-cargo run -- download options SPY
 cargo run -- status
 ```
 
