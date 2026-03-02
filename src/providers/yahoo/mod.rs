@@ -59,6 +59,7 @@ impl crate::providers::DataProvider for YahooProvider {
         let prices_path = cache.prices_path(&symbol_upper)?;
         let cached_lf = cache.read_parquet(&prices_path).await?;
 
+        // Check for resume opportunity and determine period to fetch
         let fetch_period = if let Some(lf) = cached_lf.clone() {
             // Read cached data to check for resume opportunity
             match tokio::task::spawn_blocking(move || lf.collect()).await {
@@ -83,7 +84,7 @@ impl crate::providers::DataProvider for YahooProvider {
                         }
 
                         // Determine appropriate period for the gap
-                        let gap_period = if days_gap < 30 {
+                        let period = if days_gap < 30 {
                             "1mo"
                         } else if days_gap < 90 {
                             "3mo"
@@ -97,9 +98,9 @@ impl crate::providers::DataProvider for YahooProvider {
 
                         tracing::info!(
                             "Yahoo: {symbol_upper} gap detected ({days_gap} days), \
-                             fetching {gap_period} to fill from {resume_date} to {today}"
+                             fetching {period} to fill from {resume_date} to {today}"
                         );
-                        gap_period.to_string()
+                        period.to_string()
                     } else {
                         // No resume date found, use params
                         params.period.clone()
@@ -115,7 +116,7 @@ impl crate::providers::DataProvider for YahooProvider {
         let quotes = YahooHttpClient::fetch_quotes(&symbol_upper, &fetch_period).await?;
 
         if quotes.is_empty() {
-            anyhow::bail!("No data returned for {symbol_upper} (period: {})", fetch_period);
+            anyhow::bail!("No data returned for {symbol_upper} (period: {fetch_period})");
         }
 
         let df = build_dataframe_from_quotes(&quotes, &symbol_upper)?;
