@@ -1,6 +1,8 @@
 //! Yahoo Finance data provider for OHLCV prices.
 //!
 //! Ports functionality from `optopy-mcp/src/tools/fetch.rs`.
+//!
+//! Supports incremental updates by computing resume date from cached data.
 
 mod http;
 mod parsing;
@@ -10,9 +12,10 @@ pub use parsing::build_dataframe_from_quotes;
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
-use crate::utils::{extract_date_range, PRICES_DATE_COLUMN};
+use crate::utils::{compute_resume_date, extract_date_range, PRICES_DATE_COLUMN};
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::Utc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -52,10 +55,67 @@ impl crate::providers::DataProvider for YahooProvider {
     ) -> Result<DownloadResult> {
         let symbol_upper = symbol.to_uppercase();
 
-        let quotes = YahooHttpClient::fetch_quotes(&symbol_upper, &params.period).await?;
+        // Determine period: use cached resume date if available, otherwise use params
+        let prices_path = cache.prices_path(&symbol_upper)?;
+        let cached_lf = cache.read_parquet(&prices_path).await?;
+
+        let fetch_period = if let Some(lf) = cached_lf.clone() {
+            // Read cached data to check for resume opportunity
+            match tokio::task::spawn_blocking(move || lf.collect()).await {
+                Ok(Ok(df)) => {
+                    // Found cached data - compute resume date and gap
+                    if let Some(resume_date) = compute_resume_date(&df, PRICES_DATE_COLUMN) {
+                        let today = Utc::now().date_naive();
+                        let days_gap = (today - resume_date).num_days();
+
+                        if days_gap <= 0 {
+                            // Already up to date, no need to fetch
+                            tracing::info!(
+                                "Yahoo: {symbol_upper} already up to date (last cached: {resume_date})"
+                            );
+                            return Ok(DownloadResult::success(
+                                symbol_upper,
+                                self.name().to_string(),
+                                0,
+                                df.height(),
+                                extract_date_range(&df, PRICES_DATE_COLUMN),
+                            ));
+                        }
+
+                        // Determine appropriate period for the gap
+                        let gap_period = if days_gap < 30 {
+                            "1mo"
+                        } else if days_gap < 90 {
+                            "3mo"
+                        } else if days_gap < 180 {
+                            "6mo"
+                        } else if days_gap < 365 {
+                            "1y"
+                        } else {
+                            "5y"
+                        };
+
+                        tracing::info!(
+                            "Yahoo: {symbol_upper} gap detected ({days_gap} days), \
+                             fetching {gap_period} to fill from {resume_date} to {today}"
+                        );
+                        gap_period.to_string()
+                    } else {
+                        // No resume date found, use params
+                        params.period.clone()
+                    }
+                }
+                _ => params.period.clone(),
+            }
+        } else {
+            // No cached data, use params (full history fetch)
+            params.period.clone()
+        };
+
+        let quotes = YahooHttpClient::fetch_quotes(&symbol_upper, &fetch_period).await?;
 
         if quotes.is_empty() {
-            anyhow::bail!("No data returned for {symbol_upper} (period: {})", params.period);
+            anyhow::bail!("No data returned for {symbol_upper} (period: {})", fetch_period);
         }
 
         let df = build_dataframe_from_quotes(&quotes, &symbol_upper)?;
@@ -69,8 +129,7 @@ impl crate::providers::DataProvider for YahooProvider {
         .await
         .ok();
 
-        // Read cache to get totals
-        let prices_path = cache.prices_path(&symbol_upper)?;
+        // Read cache to get totals (including newly merged data)
         let cached_lf = cache.read_parquet(&prices_path).await?;
 
         let (total_rows, date_range) = if let Some(lf) = cached_lf {

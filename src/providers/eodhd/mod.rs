@@ -21,13 +21,11 @@ use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-/// Compute the resume date from cached data for a given option type.
+/// Compute resume date for options, handling option_type filtering and weekend awareness.
 ///
-/// Returns the next trading day after the latest quote_date for this option type,
-/// or None if no matching data exists.
-///
-/// Uses prices cache to skip weekends/holidays (only trading days have price data).
-fn compute_resume_date(
+/// For a given option type (call/put), finds the max quote_date in the cache,
+/// then uses the prices cache to find the next trading day (skipping weekends/holidays).
+fn compute_options_resume_date(
     df: &DataFrame,
     option_type: &str,
     prices_df: Option<&DataFrame>,
@@ -179,7 +177,7 @@ impl crate::providers::DataProvider for EodhdProvider {
             // Determine resume point from cache
             let resume_from = if let Some(ref df) = cached_df {
                 // Filter to this option type and find max quote_date
-                compute_resume_date(df, option_type, prices_df.as_ref())
+                compute_options_resume_date(df, option_type, prices_df.as_ref())
             } else {
                 None
             };
