@@ -10,7 +10,11 @@ use crate::Config;
 use anyhow::Result;
 use std::sync::Arc;
 
-/// Execute a download command.
+/// Execute the download command.
+///
+/// Builds a [`Pipeline`] from the configured providers and runs it.
+/// Returns [`InflowError::PartialFailure`] if some symbols fail,
+/// or [`InflowError::Config`] if no providers are configured for the requested category.
 pub async fn execute(
     config: &Config,
     target: DownloadTarget,

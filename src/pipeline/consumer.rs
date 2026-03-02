@@ -2,7 +2,7 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::WindowChunk;
-use crate::utils::OPTIONS_DEDUP_COLS;
+use crate::utils::{OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS};
 use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::collections::HashMap;
@@ -135,11 +135,11 @@ fn deduplicate_options(df: &mut DataFrame) -> Result<()> {
 
 /// Sort options DataFrame by quote_date if the column exists.
 fn sort_by_quote_date(df: &mut DataFrame) -> Result<()> {
-    if df.schema().contains("quote_date") {
+    if df.schema().contains(OPTIONS_DATE_COLUMN) {
         let temp = mem::take(df);
         *df = temp
             .lazy()
-            .sort(["quote_date"], SortMultipleOptions::default())
+            .sort([OPTIONS_DATE_COLUMN], SortMultipleOptions::default())
             .collect()
             .context("Failed to sort DataFrame by quote_date")?;
     }

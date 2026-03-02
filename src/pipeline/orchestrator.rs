@@ -1,4 +1,9 @@
-//! Pipeline orchestration.
+//! Pipeline orchestration using a producer–consumer model.
+//!
+//! [`Pipeline::run`] spawns one producer task per (provider, symbol) pair,
+//! limited by a [`Semaphore`] for concurrency control. All chunks flow via
+//! an mpsc channel to a single consumer ([`run_writer`]) that accumulates
+//! options windows and writes prices immediately.
 
 use crate::cache::CacheStore;
 use crate::pipeline::consumer::run_writer;
@@ -90,7 +95,13 @@ impl Pipeline {
         }
 
         // Wait for consumer to finish processing remaining chunks
-        let writer_errors = consumer_handle.await.unwrap_or_default();
+        let writer_errors = match consumer_handle.await {
+            Ok(errs) => errs,
+            Err(e) => {
+                tracing::error!("Consumer task panicked: {e}");
+                vec![format!("Consumer task panicked: {e}")]
+            }
+        };
         if !writer_errors.is_empty() {
             tracing::warn!("Writer errors: {:?}", writer_errors);
         }

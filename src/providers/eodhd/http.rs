@@ -27,7 +27,10 @@ impl HttpClient {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to build HTTP client with timeout: {e}, using default");
+                Client::new()
+            });
 
         Self {
             client,

@@ -1,7 +1,7 @@
 //! Status command implementation.
 
 use crate::cache::{scan_file, CacheStore};
-use crate::utils::cache_status_table;
+use crate::utils::{cache_status_table, OPTIONS_DATE_COLUMN, PRICES_DATE_COLUMN};
 use anyhow::Result;
 
 /// Execute the status command.
@@ -37,9 +37,9 @@ async fn print_category_table(
     cache: &CacheStore,
 ) -> Result<()> {
     let date_col = if category == "options" {
-        "quote_date"
+        OPTIONS_DATE_COLUMN
     } else {
-        "date"
+        PRICES_DATE_COLUMN
     };
 
     let mut table_data = Vec::new();
