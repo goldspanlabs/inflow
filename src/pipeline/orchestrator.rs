@@ -6,7 +6,6 @@ use crate::pipeline::producer::run_symbol_worker;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
 use anyhow::Result;
-use futures::future::join_all;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;

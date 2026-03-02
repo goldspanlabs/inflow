@@ -9,7 +9,7 @@ mod pipeline;
 mod providers;
 mod utils;
 
-use cli::{Args, Command, DownloadTarget};
+use cli::{Args, Command};
 use clap::Parser;
 use config::Config;
 use error::InflowError;

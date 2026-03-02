@@ -3,7 +3,6 @@
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
-use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;

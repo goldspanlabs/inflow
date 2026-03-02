@@ -4,4 +4,4 @@ pub mod producer;
 pub mod types;
 
 pub use orchestrator::Pipeline;
-pub use types::{DownloadParams, DownloadResult, WindowChunk};
+pub use types::{DownloadParams, DownloadResult};
