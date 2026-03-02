@@ -205,11 +205,14 @@ impl Paginator {
         (rows, hit_cap, None)
     }
 
-    /// Fetch a single date window, subdividing if the offset cap is hit.
+    /// Fetch a single date window, using price-informed strike partitioning when available.
     ///
     /// Returns `(total_rows_fetched_so_far, error)`.
     /// Uses `Box::pin` for the recursive calls to avoid infinite future sizes.
-    /// When offset cap is hit on a minimum window, attempts price-informed strike recovery.
+    ///
+    /// For minimum windows (1 day), attempts to partition by strike ranges based on
+    /// underlying price. This avoids offset cap issues and fetches only liquid strikes.
+    /// Falls back to full fetch if price unavailable.
     pub fn fetch_window_recursive<'a>(
         &'a self,
         symbol: &'a str,
@@ -230,6 +233,33 @@ impl Paginator {
                 "Fetching {symbol} {option_type} options: {win_from} to {win_to} \
                  ({span_days} days) — {rows_fetched} total rows so far"
             );
+
+            // For minimum windows (1 day), try price-informed strike partitioning first
+            if span_days == 0 {
+                if let Ok(Some(price)) = get_cached_price(cache, symbol, win_from).await {
+                    tracing::info!(
+                        "Using cached price for {symbol} on {win_from}: ${price:.2}, \
+                         using price-informed strike partitioning"
+                    );
+                    let (recovered, recovery_err) = self
+                        .fetch_by_strike_range(
+                            symbol,
+                            option_type,
+                            win_from,
+                            win_to,
+                            price,
+                            rows_fetched,
+                            tx,
+                        )
+                        .await;
+                    return (recovered, recovery_err);
+                } else {
+                    tracing::info!(
+                        "No cached price available for {symbol} on {win_from}, \
+                         falling back to full fetch"
+                    );
+                }
+            }
 
             let from_str = win_from.format("%Y-%m-%d").to_string();
             let to_str = win_to.format("%Y-%m-%d").to_string();
@@ -272,50 +302,17 @@ impl Paginator {
             }
 
             if hit_cap && span_days <= MIN_WINDOW_DAYS {
-                // Attempt price-informed strike range recovery
+                // Minimum window still hit cap despite price-informed partitioning
+                // This means even the strike ranges had 10K+ rows (extreme volatility)
                 tracing::warn!(
-                    "Offset cap hit for {symbol} {option_type} on minimum window ({win_from} to {win_to}), \
-                     attempting price-informed strike range recovery"
+                    "Offset cap still hit for {symbol} {option_type} on minimum window ({win_from} to {win_to}) \
+                     even with strike partitioning, data may be incomplete (would need further subdivision by strike)"
                 );
-
-                // Try to fetch underlying price from cache or download
-                match get_cached_price(cache, symbol, win_from).await {
-                    Ok(Some(price)) => {
-                        tracing::info!(
-                            "Using cached price for {symbol} on {win_from}: ${price:.2}"
-                        );
-                        let (recovered, recovery_err) = self
-                            .fetch_by_strike_range(
-                                symbol,
-                                option_type,
-                                win_from,
-                                win_to,
-                                price,
-                                rows_fetched,
-                                tx,
-                            )
-                            .await;
-                        return (recovered, recovery_err);
-                    }
-                    Ok(None) => {
-                        tracing::warn!(
-                            "No cached price available for {symbol} on {win_from}, \
-                             cannot perform strike range recovery"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to fetch price for {symbol}: {e}, \
-                             cannot perform strike range recovery"
-                        );
-                    }
-                }
-
-                // If price recovery failed, return partial data with warning
                 return (
                     rows_fetched,
                     Some(format!(
-                        "offset cap hit on minimum window {win_from}–{win_to}, data may be incomplete (price recovery failed)"
+                        "offset cap hit on minimum window {win_from}–{win_to} even with strike partitioning, \
+                         data may be incomplete"
                     )),
                 );
             }
