@@ -12,6 +12,15 @@
 - ⚡ **Rate limiting** — Built-in adaptive rate limiting respects API quotas
 - 🛟 **Error recovery** — Exponential backoff on transient failures; non-fatal errors don't block other symbols
 
+## Quick Start
+
+```bash
+git clone https://github.com/goldspanlabs/inflow.git
+cd inflow
+cargo run -- download prices SPY
+cargo run -- status
+```
+
 ## Installation
 
 ### From Source
@@ -20,7 +29,9 @@
 git clone https://github.com/goldspanlabs/inflow.git
 cd inflow
 cargo build --release
-./target/release/inflow --help
+
+# Optionally copy to a directory on your PATH
+cp ./target/release/inflow /usr/local/bin/
 ```
 
 ### Requirements
