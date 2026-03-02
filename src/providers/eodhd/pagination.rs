@@ -264,16 +264,25 @@ impl Paginator {
     }
 
     /// Fetch all rows for a single option type using date windows.
+    ///
+    /// If `resume_from` is provided, only fetches data after that date
+    /// (for resuming interrupted downloads or incremental updates).
     pub async fn fetch_all_for_type(
         &self,
         symbol: &str,
         option_type: &str,
-        _resume_from: Option<NaiveDate>,
+        resume_from: Option<NaiveDate>,
         tx: &mpsc::Sender<WindowChunk>,
         pb: &ProgressBar,
     ) -> (usize, Option<String>) {
         let today = Utc::now().date_naive();
-        let start = today - Duration::days(HISTORY_DAYS);
+
+        // Use resume_from if provided, otherwise default to full history
+        let start = if let Some(resume_date) = resume_from {
+            resume_date
+        } else {
+            today - Duration::days(HISTORY_DAYS)
+        };
         let end = today;
 
         if start >= end {

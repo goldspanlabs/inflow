@@ -13,11 +13,61 @@ use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::utils::extract_date_range;
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pagination::Paginator;
+use polars::prelude::*;
 use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+/// Compute the resume date from cached data for a given option type.
+///
+/// Returns the day after the latest quote_date for this option type,
+/// or None if no matching data exists.
+fn compute_resume_date(df: &DataFrame, option_type: &str) -> Option<chrono::NaiveDate> {
+    // Get the option_type column and filter for matching rows
+    let type_col = df.column("option_type").ok()?;
+    let type_str = type_col.str().ok()?;
+
+    // Get the quote_date column and access its physical (i32) representation
+    let date_col = df.column("quote_date").ok()?;
+    let date_chunked = date_col.date().ok()?;
+    let date_phys = &date_chunked.phys;
+
+    // Filter to rows where option_type matches the current type's first letter
+    let type_char = option_type.chars().next()?.to_lowercase().to_string();
+
+    let mut max_date: Option<chrono::NaiveDate> = None;
+
+    // Iterate through both columns together
+    let type_strs: Vec<Option<&str>> = type_str.iter().collect();
+    let date_vals: Vec<Option<i32>> = date_phys.iter().collect();
+
+    for (opt_type_str, date_val) in type_strs.iter().zip(date_vals.iter()) {
+        if let (Some(ot), Some(date_i32)) = (opt_type_str, date_val) {
+            let ot_first_char = ot.chars().next();
+            if ot_first_char.map(|c: char| c.to_lowercase().to_string()) == Some(type_char.clone()) {
+                // Convert i32 days since epoch to NaiveDate
+                // Polars uses days since 1900-01-01, so offset is (1900 - -4713) * 365.25 ≈ 719_163
+                if let Some(date) = chrono::NaiveDate::from_num_days_from_ce_opt(date_i32 + 719_162) {
+                    if max_date.is_none() || date > max_date.unwrap() {
+                        max_date = Some(date);
+                    }
+                }
+            }
+        }
+    }
+
+    // Return the day after the max_date
+    max_date.map(|d| {
+        let resume = d + Duration::days(1);
+        tracing::info!(
+            "Resuming {option_type} options from {resume} (latest cached: {d})"
+        );
+        resume
+    })
+}
 
 /// EODHD options data provider.
 pub struct EodhdProvider {
@@ -63,14 +113,29 @@ impl crate::providers::DataProvider for EodhdProvider {
         let mut errors: Vec<String> = Vec::new();
         let mut new_rows_total: usize = 0;
 
+        // Check cache to enable resume: find the latest quote_date for each option_type
+        let cached_df = cache.read_parquet(&cache.options_path(&symbol).unwrap_or_default())
+            .await
+            .ok()
+            .flatten()
+            .and_then(|lf| lf.collect().ok());
+
         for option_type in &["call", "put"] {
             let pb = mp.add(ProgressBar::new(0));
             pb.set_style(bar_style.clone());
             pb.set_prefix(format!("{symbol} {option_type}s"));
 
+            // Determine resume point from cache
+            let resume_from = if let Some(ref df) = cached_df {
+                // Filter to this option type and find max quote_date
+                compute_resume_date(df, option_type)
+            } else {
+                None
+            };
+
             let (new_rows, error) = self
                 .paginator
-                .fetch_all_for_type(&symbol, option_type, None, &tx, &pb)
+                .fetch_all_for_type(&symbol, option_type, resume_from, &tx, &pb)
                 .await;
 
             if let Some(err) = error {
