@@ -1,0 +1,159 @@
+//! Download command implementation.
+
+use crate::cache::CacheStore;
+use crate::cli::DownloadTarget;
+use crate::error::InflowError;
+use crate::pipeline::{DownloadParams, DownloadResult, Pipeline};
+use crate::providers::build_providers;
+use crate::Config;
+use anyhow::Result;
+use comfy_table::Table;
+use std::sync::Arc;
+
+/// Execute a download command.
+pub async fn execute(
+    config: &Config,
+    target: DownloadTarget,
+) -> Result<Vec<DownloadResult>, InflowError> {
+    let cache = Arc::new(CacheStore::new(config.data_root.clone()));
+    let providers = build_providers(config);
+
+    if providers.is_empty() {
+        return Err(InflowError::Config(
+            "No providers enabled. Set EODHD_API_KEY to enable EODHD provider.".to_string(),
+        ));
+    }
+
+    let (filtered_providers, symbols, params, concurrency) = match target {
+        DownloadTarget::Options {
+            symbols,
+            from,
+            concurrency,
+        } => {
+            let opts_providers: Vec<_> = providers
+                .iter()
+                .filter(|p| p.category() == "options")
+                .cloned()
+                .collect();
+
+            if opts_providers.is_empty() {
+                return Err(InflowError::Config(
+                    "No options providers enabled. Set EODHD_API_KEY to enable EODHD.".to_string(),
+                ));
+            }
+
+            let params = DownloadParams {
+                from_date: from,
+                period: "1y".to_string(),
+            };
+
+            (opts_providers, symbols, params, concurrency)
+        }
+
+        DownloadTarget::Prices {
+            symbols,
+            period,
+            concurrency,
+        } => {
+            let prices_providers: Vec<_> = providers
+                .iter()
+                .filter(|p| p.category() == "prices")
+                .cloned()
+                .collect();
+
+            if prices_providers.is_empty() {
+                return Err(InflowError::Config(
+                    "No prices providers available.".to_string(),
+                ));
+            }
+
+            let params = DownloadParams {
+                from_date: None,
+                period,
+            };
+
+            (prices_providers, symbols, params, concurrency)
+        }
+
+        DownloadTarget::All {
+            symbols,
+            from,
+            period,
+            concurrency,
+        } => {
+            let params = DownloadParams {
+                from_date: from,
+                period,
+            };
+
+            (providers, symbols, params, concurrency)
+        }
+    };
+
+    let pipeline = Pipeline {
+        providers: filtered_providers,
+        cache,
+        symbols,
+        params,
+        concurrency,
+    };
+
+    let results = pipeline.run().await.map_err(|e| {
+        InflowError::Other(anyhow::anyhow!("Pipeline execution failed: {}", e))
+    })?;
+
+    // Print results table
+    print_results(&results);
+
+    // Check for partial failures
+    let failed_count = results.iter().filter(|r| !r.is_success()).count();
+    if failed_count > 0 && failed_count < results.len() {
+        return Err(InflowError::PartialFailure(format!(
+            "{} of {} symbols failed",
+            failed_count,
+            results.len()
+        )));
+    } else if failed_count == results.len() {
+        return Err(InflowError::PartialFailure(
+            "All downloads failed".to_string(),
+        ));
+    }
+
+    Ok(results)
+}
+
+fn print_results(results: &[DownloadResult]) {
+    let mut table = Table::new();
+    table.set_header(vec![
+        "Symbol",
+        "Provider",
+        "New Rows",
+        "Total Rows",
+        "Date Range",
+        "Status",
+    ]);
+
+    for result in results {
+        let date_range = result
+            .date_range
+            .map(|(min, max)| format!("{} → {}", min, max))
+            .unwrap_or_default();
+
+        let status = if result.is_success() {
+            "✓".to_string()
+        } else {
+            format!("✗ ({})", result.errors.join("; "))
+        };
+
+        table.add_row(vec![
+            result.symbol.clone(),
+            result.provider.clone(),
+            result.new_rows.to_string(),
+            result.total_rows.to_string(),
+            date_range,
+            status,
+        ]);
+    }
+
+    println!("\n{table}\n");
+}

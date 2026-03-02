@@ -1,0 +1,68 @@
+[package]
+name = "inflow"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone CLI for downloading and caching market data to optopsy cache"
+
+[dependencies]
+# Core async/CLI
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+
+# Data handling — MUST match optopy-mcp for Parquet compatibility
+polars = { version = "0.53", features = ["lazy", "parquet", "dtype-date", "dtype-datetime"] }
+yahoo_finance_api = "4.1"
+
+# HTTP and retry logic
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Rate limiting
+governor = "0.7"
+nonzero_ext = "0.3"
+
+# Async utilities
+tokio-util = "0.7"
+futures = "0.3"
+async-trait = "0.1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Errors and logging
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config loading
+dotenvy = "0.15"
+shellexpand = "3"
+
+# Progress bars
+indicatif = "0.17"
+
+# Environment/paths
+dirs = "5.0"
+
+# Table output
+comfy-table = "7"
+console = "0.15"
+
+# Misc
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
+tokio-test = "0.4"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"

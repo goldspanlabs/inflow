@@ -1,0 +1,101 @@
+//! Pipeline orchestration.
+
+use crate::cache::CacheStore;
+use crate::pipeline::consumer::run_writer;
+use crate::pipeline::producer::run_symbol_worker;
+use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
+use crate::providers::DataProvider;
+use anyhow::Result;
+use futures::future::join_all;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Semaphore};
+use tokio_util::sync::CancellationToken;
+
+/// Download pipeline configuration.
+pub struct Pipeline {
+    /// List of enabled providers.
+    pub providers: Vec<Arc<dyn DataProvider>>,
+
+    /// Cache store.
+    pub cache: Arc<CacheStore>,
+
+    /// Symbols to download.
+    pub symbols: Vec<String>,
+
+    /// Download parameters.
+    pub params: DownloadParams,
+
+    /// Concurrency limit for downloads.
+    pub concurrency: usize,
+}
+
+impl Pipeline {
+    /// Run the pipeline.
+    ///
+    /// Spawns producer workers for each provider-symbol pair, runs the consumer
+    /// to merge and write data, and returns aggregate results.
+    pub async fn run(self) -> Result<Vec<DownloadResult>> {
+        let shutdown = CancellationToken::new();
+
+        // Channel for chunks (buffered to prevent blocking)
+        let (tx, rx) = mpsc::channel::<WindowChunk>(self.concurrency * 4);
+
+        // Semaphore to limit concurrent downloads
+        let semaphore = Arc::new(Semaphore::new(self.concurrency));
+
+        // Spawn the consumer task
+        let consumer_cache = Arc::clone(&self.cache);
+        let consumer_handle = tokio::spawn(async move {
+            run_writer(consumer_cache, rx).await
+        });
+
+        // Spawn producer tasks
+        let mut producer_handles = Vec::new();
+
+        for provider in &self.providers {
+            for symbol in &self.symbols {
+                let symbol_clone = symbol.clone();
+                let provider_clone = Arc::clone(provider);
+                let params_clone = self.params.clone();
+                let cache_clone = Arc::clone(&self.cache);
+                let semaphore_clone = Arc::clone(&semaphore);
+                let tx_clone = tx.clone();
+                let shutdown_clone = shutdown.clone();
+
+                let handle = tokio::spawn(async move {
+                    run_symbol_worker(
+                        symbol_clone,
+                        provider_clone,
+                        params_clone,
+                        cache_clone,
+                        semaphore_clone,
+                        tx_clone,
+                        shutdown_clone,
+                    )
+                    .await
+                });
+
+                producer_handles.push(handle);
+            }
+        }
+
+        // Drop the original sender so consumer knows when producers are done
+        drop(tx);
+
+        // Wait for all producers to complete
+        let mut results = Vec::new();
+        for handle in producer_handles {
+            if let Ok(result) = handle.await {
+                results.push(result);
+            }
+        }
+
+        // Wait for consumer to finish processing remaining chunks
+        let writer_errors = consumer_handle.await.unwrap_or_default();
+        if !writer_errors.is_empty() {
+            tracing::warn!("Writer errors: {:?}", writer_errors);
+        }
+
+        Ok(results)
+    }
+}

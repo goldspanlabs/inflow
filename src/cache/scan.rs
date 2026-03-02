@@ -1,0 +1,118 @@
+//! Cache file scanning and inspection.
+
+use anyhow::{Context, Result};
+use chrono::NaiveDate;
+use polars::prelude::*;
+use std::path::Path;
+
+/// Information about a cached Parquet file.
+#[derive(Debug, Clone)]
+pub struct CacheFileInfo {
+    /// Symbol (filename without extension).
+    pub symbol: String,
+
+    /// File path.
+    pub path: String,
+
+    /// File size in bytes.
+    pub size_bytes: u64,
+
+    /// Number of rows in the file.
+    pub row_count: usize,
+
+    /// Earliest date in the `date` or `quote_date` column (if available).
+    pub date_min: Option<NaiveDate>,
+
+    /// Latest date in the `date` or `quote_date` column (if available).
+    pub date_max: Option<NaiveDate>,
+}
+
+/// Scan a Parquet file and extract metadata.
+///
+/// Reads the Parquet file to get row count and date range (from `quote_date` or `date` column).
+pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
+    let symbol = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let path_str = path.to_string_lossy().to_string();
+
+    // Get file size
+    let size_bytes = tokio::fs::metadata(path)
+        .await
+        .context("Failed to read file metadata")?
+        .len();
+
+    // Read Parquet to get row count and date range
+    let path_owned = path.to_path_buf();
+    let date_col_owned = date_col.to_string();
+
+    let (row_count, date_min, date_max) = tokio::task::spawn_blocking(move || {
+        let lf = LazyFrame::scan_parquet(
+            path_owned.to_string_lossy().as_ref().into(),
+            ScanArgsParquet::default(),
+        )
+        .ok();
+
+        let lf = match lf {
+            Some(lf) => lf,
+            None => return (0, None, None),
+        };
+
+        let row_count = lf.clone().collect().ok().map(|df| df.height()).unwrap_or(0);
+
+        let (date_min, date_max) = if let Ok(df) = lf.collect() {
+            let col_name = if df.schema().contains(&date_col_owned) {
+                &date_col_owned
+            } else if df.schema().contains("date") {
+                "date"
+            } else if df.schema().contains("quote_date") {
+                "quote_date"
+            } else {
+                return (row_count, None, None);
+            };
+
+            let min = df
+                .column(col_name)
+                .ok()
+                .and_then(|col| col.min_reduce().ok())
+                .and_then(|s| date_scalar_to_naive(&s.value()));
+
+            let max = df
+                .column(col_name)
+                .ok()
+                .and_then(|col| col.max_reduce().ok())
+                .and_then(|s| date_scalar_to_naive(&s.value()));
+
+            (min, max)
+        } else {
+            (None, None)
+        };
+
+        (row_count, date_min, date_max)
+    })
+    .await
+    .ok()
+    .unwrap_or((0, None, None));
+
+    Ok(CacheFileInfo {
+        symbol,
+        path: path_str,
+        size_bytes,
+        row_count,
+        date_min,
+        date_max,
+    })
+}
+
+/// Convert a Polars date scalar to NaiveDate.
+fn date_scalar_to_naive(val: &AnyValue) -> Option<NaiveDate> {
+    match val {
+        AnyValue::Date(days) => {
+            NaiveDate::from_num_days_from_ce_opt(days + 719_163)
+        }
+        _ => None,
+    }
+}
