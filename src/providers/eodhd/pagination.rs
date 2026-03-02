@@ -380,6 +380,8 @@ impl Paginator {
         };
         let end = today;
 
+        // If resume date is in the future or today, nothing to fetch
+        // (e.g., cached Friday, run Saturday, resume_from Monday → skip fetch)
         if start >= end {
             pb.finish_with_message("up to date");
             return (0, None);
