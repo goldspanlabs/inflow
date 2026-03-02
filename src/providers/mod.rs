@@ -15,10 +15,10 @@ use tokio_util::sync::CancellationToken;
 #[async_trait]
 pub trait DataProvider: Send + Sync {
     /// Provider name (e.g., "EODHD", "Yahoo").
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
 
     /// Category of data (e.g., "options", "prices").
-    fn category(&self) -> &str;
+    fn category(&self) -> &'static str;
 
     /// Download data for a symbol.
     ///

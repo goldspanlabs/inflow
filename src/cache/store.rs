@@ -4,8 +4,6 @@ use anyhow::{bail, Context, Result};
 use polars::prelude::*;
 use std::path::{Path, PathBuf};
 
-use anyhow;
-
 /// Cache store for reading and writing Parquet files.
 #[derive(Debug, Clone)]
 pub struct CacheStore {
@@ -23,7 +21,7 @@ impl CacheStore {
     ///
     /// Returns `{root}/options/{SYMBOL}.parquet` where SYMBOL is uppercased.
     pub fn options_path(&self, symbol: &str) -> Result<PathBuf> {
-        let safe = self.validate_symbol(symbol)?;
+        let safe = Self::validate_symbol(symbol)?;
         Ok(self.root.join("options").join(format!("{safe}.parquet")))
     }
 
@@ -31,7 +29,7 @@ impl CacheStore {
     ///
     /// Returns `{root}/prices/{SYMBOL}.parquet` where SYMBOL is uppercased.
     pub fn prices_path(&self, symbol: &str) -> Result<PathBuf> {
-        let safe = self.validate_symbol(symbol)?;
+        let safe = Self::validate_symbol(symbol)?;
         Ok(self.root.join("prices").join(format!("{safe}.parquet")))
     }
 
@@ -43,11 +41,11 @@ impl CacheStore {
         match category {
             "options" => self.options_path(symbol),
             "prices" => self.prices_path(symbol),
-            _ => Err(anyhow::anyhow!("Unknown category: {}", category)),
+            _ => Err(anyhow::anyhow!("Unknown category: {category}")),
         }
     }
 
-    /// Atomically write a DataFrame to the given path.
+    /// Atomically write a `DataFrame` to the given path.
     ///
     /// Writes to a temporary `.parquet.tmp` file and renames atomically to avoid
     /// corruption from interrupted I/O.
@@ -57,13 +55,21 @@ impl CacheStore {
 
         tokio::task::spawn_blocking(move || {
             if let Some(parent) = path_owned.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("Failed to create cache dir: {}", parent.display()))?;
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!(
+                        "Failed to create cache dir: {path}",
+                        path = parent.display()
+                    )
+                })?;
             }
 
             let tmp_path = path_owned.with_extension("parquet.tmp");
-            let file = std::fs::File::create(&tmp_path)
-                .with_context(|| format!("Failed to create temp file: {}", tmp_path.display()))?;
+            let file = std::fs::File::create(&tmp_path).with_context(|| {
+                format!(
+                    "Failed to create temp file: {path}",
+                    path = tmp_path.display()
+                )
+            })?;
 
             ParquetWriter::new(file)
                 .finish(&mut df_clone)
@@ -71,9 +77,9 @@ impl CacheStore {
 
             std::fs::rename(&tmp_path, &path_owned).with_context(|| {
                 format!(
-                    "Failed to rename {} → {}",
-                    tmp_path.display(),
-                    path_owned.display()
+                    "Failed to rename {from} → {to}",
+                    from = tmp_path.display(),
+                    to = path_owned.display()
                 )
             })?;
 
@@ -94,11 +100,8 @@ impl CacheStore {
             }
 
             let path_str = path_owned.to_string_lossy().to_string();
-            let lf = LazyFrame::scan_parquet(
-                path_str.as_str().into(),
-                ScanArgsParquet::default(),
-            )
-            .context("Failed to scan parquet")?;
+            let lf = LazyFrame::scan_parquet(path_str.as_str().into(), ScanArgsParquet::default())
+                .context("Failed to scan parquet")?;
 
             Ok(Some(lf))
         })
@@ -131,14 +134,14 @@ impl CacheStore {
     }
 
     /// Validate a symbol and return the uppercase version.
-    fn validate_symbol(&self, symbol: &str) -> Result<String> {
+    fn validate_symbol(symbol: &str) -> Result<String> {
         if symbol.is_empty() {
             bail!("symbol must not be empty");
         }
         // Allow alphanumeric, dots, and dashes (common in tickers like BRK.A, BF.B, etc.)
         for c in symbol.chars() {
             if !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '_' {
-                bail!("symbol contains invalid character: {}", c);
+                bail!("symbol contains invalid character: {c}");
             }
         }
         Ok(symbol.to_uppercase())

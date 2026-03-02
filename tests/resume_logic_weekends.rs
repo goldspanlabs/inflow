@@ -97,13 +97,13 @@ fn test_prices_cache_trading_days_only() {
     let candidate = max_options_date.succ_opt().expect("valid");
 
     // Scan prices for first date >= candidate (Saturday 2024-01-20)
-    let next_trading_day = trading_days
-        .iter()
-        .find(|&&d| d >= candidate)
-        .copied();
+    let next_trading_day = trading_days.iter().find(|&&d| d >= candidate).copied();
 
     // Should find Monday
-    assert_eq!(next_trading_day, Some(NaiveDate::from_ymd_opt(2024, 1, 22).unwrap()));
+    assert_eq!(
+        next_trading_day,
+        Some(NaiveDate::from_ymd_opt(2024, 1, 22).unwrap())
+    );
 }
 
 #[test]

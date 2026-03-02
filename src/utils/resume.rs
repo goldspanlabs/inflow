@@ -5,13 +5,13 @@
 use chrono::NaiveDate;
 use polars::prelude::*;
 
-/// Compute the next trading day after the latest date in a DataFrame column.
+/// Compute the next trading day after the latest date in a `DataFrame` column.
 ///
 /// Scans the specified date column, finds the maximum date, and returns the next day.
 ///
 /// # Arguments
-/// * `df` - DataFrame containing date data
-/// * `date_column` - Name of the date column to scan (e.g., "quote_date" or "date")
+/// * `df` - `DataFrame` containing date data
+/// * `date_column` - Name of the date column to scan (e.g., `quote_date` or `date`)
 ///
 /// # Returns
 /// * `Some(date)` - Next day after the maximum date found
@@ -29,19 +29,17 @@ pub fn compute_resume_date(df: &DataFrame, date_column: &str) -> Option<NaiveDat
 
     // Find max date by scanning physical representation
     let mut max_date: Option<NaiveDate> = None;
-    for date_i32 in date_phys.iter() {
-        if let Some(di) = date_i32 {
-            // Polars uses days since 1900-01-01, offset from CE epoch is 719_162
-            if let Some(date) = NaiveDate::from_num_days_from_ce_opt(di + 719_162) {
-                if max_date.is_none() || date > max_date.unwrap() {
-                    max_date = Some(date);
-                }
+    for di in date_phys.iter().flatten() {
+        // Polars uses days since 1900-01-01, offset from CE epoch is 719_162
+        if let Some(date) = NaiveDate::from_num_days_from_ce_opt(di + 719_162) {
+            if max_date.is_none() || date > max_date.unwrap() {
+                max_date = Some(date);
             }
         }
     }
 
     // Return next day after max date
-    max_date.map(|d| d.succ_opt()).flatten()
+    max_date.and_then(|d| d.succ_opt())
 }
 
 #[cfg(test)]
@@ -53,7 +51,10 @@ mod tests {
         // Test the date calculation logic: max_date + 1 day
         let friday = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
         let expected_saturday = friday.succ_opt().unwrap();
-        assert_eq!(expected_saturday, NaiveDate::from_ymd_opt(2024, 1, 20).unwrap());
+        assert_eq!(
+            expected_saturday,
+            NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()
+        );
     }
 
     #[test]

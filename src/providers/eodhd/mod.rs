@@ -1,7 +1,7 @@
 //! EODHD data provider for historical US equity options chains.
 //!
 //! Ports the key functionality from `optopy-mcp/src/data/eodhd.rs` with adaptations for the
-//! DataProvider trait and pipeline architecture.
+//! `DataProvider` trait and pipeline architecture.
 
 pub mod http;
 pub mod pagination;
@@ -21,9 +21,9 @@ use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-/// Compute resume date for options, handling option_type filtering and weekend awareness.
+/// Compute resume date for options, handling `option_type` filtering and weekend awareness.
 ///
-/// For a given option type (call/put), finds the max quote_date in the cache,
+/// For a given option type (call/put), finds the max `quote_date` in the cache,
 /// then uses the prices cache to find the next trading day (skipping weekends/holidays).
 fn compute_options_resume_date(
     df: &DataFrame,
@@ -51,10 +51,12 @@ fn compute_options_resume_date(
     for (opt_type_str, date_val) in type_strs.iter().zip(date_vals.iter()) {
         if let (Some(ot), Some(date_i32)) = (opt_type_str, date_val) {
             let ot_first_char = ot.chars().next();
-            if ot_first_char.map(|c: char| c.to_lowercase().to_string()) == Some(type_char.clone()) {
+            if ot_first_char.map(|c: char| c.to_lowercase().to_string()) == Some(type_char.clone())
+            {
                 // Convert i32 days since epoch to NaiveDate
                 // Polars uses days since 1900-01-01, so offset is (1900 - -4713) * 365.25 ≈ 719_163
-                if let Some(date) = chrono::NaiveDate::from_num_days_from_ce_opt(date_i32 + 719_162) {
+                if let Some(date) = chrono::NaiveDate::from_num_days_from_ce_opt(date_i32 + 719_162)
+                {
                     if max_date.is_none() || date > max_date.unwrap() {
                         max_date = Some(date);
                     }
@@ -64,7 +66,7 @@ fn compute_options_resume_date(
     }
 
     // Find the next trading day after max_date using prices cache
-    max_date.and_then(|d| {
+    max_date.map(|d| {
         let candidate = d + Duration::days(1);
 
         // If prices cache available, find next trading day (skip weekends/holidays)
@@ -90,7 +92,7 @@ fn compute_options_resume_date(
                                 "Resuming {option_type} options from {trading_date} (latest cached: {d}, \
                                  skipping weekends/holidays)"
                             );
-                            return Some(trading_date);
+                            return trading_date;
                         }
                     }
 
@@ -107,7 +109,7 @@ fn compute_options_resume_date(
         tracing::info!(
             "Resuming {option_type} options from {candidate} (latest cached: {d})"
         );
-        Some(candidate)
+        candidate
     })
 }
 
@@ -127,11 +129,11 @@ impl EodhdProvider {
 
 #[async_trait]
 impl crate::providers::DataProvider for EodhdProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "EODHD"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "options"
     }
 
@@ -156,14 +158,16 @@ impl crate::providers::DataProvider for EodhdProvider {
         let mut new_rows_total: usize = 0;
 
         // Check cache to enable resume: find the latest quote_date for each option_type
-        let cached_df = cache.read_parquet(&cache.options_path(&symbol).unwrap_or_default())
+        let cached_df = cache
+            .read_parquet(&cache.options_path(&symbol).unwrap_or_default())
             .await
             .ok()
             .flatten()
             .and_then(|lf| lf.collect().ok());
 
         // Load prices cache for weekend-aware trading day detection
-        let prices_df = cache.read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
+        let prices_df = cache
+            .read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
             .await
             .ok()
             .flatten()
@@ -197,9 +201,9 @@ impl crate::providers::DataProvider for EodhdProvider {
 
         // Read cache to get totals
         let options_path = cache.options_path(&symbol)?;
-        let cached_lf = cache.read_parquet(&options_path).await?;
+        let final_lf = cache.read_parquet(&options_path).await?;
 
-        let (total_rows, date_range) = if let Some(lf) = cached_lf {
+        let (total_rows, date_range) = if let Some(lf) = final_lf {
             if let Ok(df) = lf.collect() {
                 let rows = df.height();
                 let date_range = extract_date_range(&df, "quote_date");

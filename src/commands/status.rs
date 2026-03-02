@@ -49,16 +49,11 @@ async fn print_category_table(
             if let Ok(info) = scan_file(&path, date_col).await {
                 let size_mb = info.size_bytes as f64 / 1_000_000.0;
                 let date_range = match (info.date_min, info.date_max) {
-                    (Some(min), Some(max)) => format!("{} → {}", min, max),
+                    (Some(min), Some(max)) => format!("{min} → {max}"),
                     _ => String::new(),
                 };
 
-                table_data.push((
-                    symbol.clone(),
-                    info.row_count,
-                    size_mb,
-                    date_range,
-                ));
+                table_data.push((symbol.clone(), info.row_count, size_mb, date_range));
             }
         }
     }

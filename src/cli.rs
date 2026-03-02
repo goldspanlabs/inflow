@@ -78,5 +78,5 @@ pub enum DownloadTarget {
 /// Parse a date string in YYYY-MM-DD format.
 fn parse_naive_date(s: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map_err(|_| format!("Invalid date: '{}'. Expected format: YYYY-MM-DD", s))
+        .map_err(|_| format!("Invalid date: '{s}'. Expected format: YYYY-MM-DD"))
 }

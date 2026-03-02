@@ -49,9 +49,7 @@ impl Pipeline {
 
         // Spawn the consumer task
         let consumer_cache = Arc::clone(&self.cache);
-        let consumer_handle = tokio::spawn(async move {
-            run_writer(consumer_cache, rx).await
-        });
+        let consumer_handle = tokio::spawn(async move { run_writer(consumer_cache, rx).await });
 
         // Spawn producer tasks
         let mut producer_handles = Vec::new();

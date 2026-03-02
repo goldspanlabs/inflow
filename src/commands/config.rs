@@ -18,11 +18,7 @@ pub fn execute(config: &Config) {
     } else {
         style("✗ not set").red()
     };
-    println!(
-        "  {} {}",
-        style("EODHD_API_KEY:").bold(),
-        api_key_status
-    );
+    println!("  {} {}", style("EODHD_API_KEY:").bold(), api_key_status);
 
     println!(
         "  {} {} req/sec",

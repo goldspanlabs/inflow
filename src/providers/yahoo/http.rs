@@ -11,7 +11,7 @@ impl YahooHttpClient {
     ///
     /// Uses period-based fetching (e.g., "5y", "1y", "3mo").
     ///
-    /// Note: The yahoo_finance_api crate's `get_quote_range()` method uses period strings
+    /// Note: The `yahoo_finance_api` crate's `get_quote_range()` method uses period strings
     /// rather than date ranges. While date-range fetching would be more precise, the period-based
     /// approach works well with our gap-aware selection logic:
     /// - Gap < 30 days  → fetch "1mo"  (~21 trading days)
@@ -22,8 +22,8 @@ impl YahooHttpClient {
     ///
     /// This achieves 95% efficiency improvement vs always fetching full period.
     pub async fn fetch_quotes(symbol: &str, period: &str) -> anyhow::Result<Vec<yahoo::Quote>> {
-        let provider = yahoo::YahooConnector::new()
-            .context("Failed to create Yahoo Finance connector")?;
+        let provider =
+            yahoo::YahooConnector::new().context("Failed to create Yahoo Finance connector")?;
         let resp = provider
             .get_quote_range(symbol, "1d", period)
             .await

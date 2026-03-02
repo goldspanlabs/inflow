@@ -1,13 +1,13 @@
-//! DataFrame construction from Yahoo Finance quotes.
+//! `DataFrame` construction from Yahoo Finance quotes.
 
 use anyhow::Result;
 use chrono::NaiveDate;
 use polars::prelude::*;
 use yahoo_finance_api as yahoo;
 
-/// Build a polars DataFrame from Yahoo Finance quotes.
+/// Build a polars `DataFrame` from Yahoo Finance quotes.
 ///
-/// Constructs a DataFrame with columns: date, open, high, low, close, adjclose, volume.
+/// Constructs a `DataFrame` with columns: date, open, high, low, close, adjclose, volume.
 /// Skips quotes with invalid timestamps, logging a warning for each.
 pub fn build_dataframe_from_quotes(quotes: &[yahoo::Quote], symbol: &str) -> Result<DataFrame> {
     let mut dates: Vec<NaiveDate> = Vec::with_capacity(quotes.len());
@@ -49,11 +49,8 @@ pub fn build_dataframe_from_quotes(quotes: &[yahoo::Quote], symbol: &str) -> Res
     }?;
 
     // Add date column
-    let date_series = DateChunked::from_naive_date(
-        PlSmallStr::from("date"),
-        dates.iter().copied(),
-    )
-    .into_column();
+    let date_series =
+        DateChunked::from_naive_date(PlSmallStr::from("date"), dates.iter().copied()).into_column();
 
     let mut df = df.hstack(&[date_series])?;
 

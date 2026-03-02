@@ -31,7 +31,7 @@ pub async fn execute(
     let (filtered_providers, symbols, params, concurrency) = match target {
         DownloadTarget::Options {
             symbols,
-            from,
+            from: _,
             concurrency,
         } => {
             let opts_providers = filter_providers_by_category(&providers, "options");
@@ -43,7 +43,6 @@ pub async fn execute(
             }
 
             let params = DownloadParams {
-                from_date: from,
                 period: "1y".to_string(),
             };
 
@@ -63,24 +62,18 @@ pub async fn execute(
                 ));
             }
 
-            let params = DownloadParams {
-                from_date: None,
-                period,
-            };
+            let params = DownloadParams { period };
 
             (prices_providers, symbols, params, concurrency)
         }
 
         DownloadTarget::All {
             symbols,
-            from,
+            from: _,
             period,
             concurrency,
         } => {
-            let params = DownloadParams {
-                from_date: from,
-                period,
-            };
+            let params = DownloadParams { period };
 
             (providers, symbols, params, concurrency)
         }
@@ -94,9 +87,10 @@ pub async fn execute(
         concurrency,
     };
 
-    let results = pipeline.run().await.map_err(|e| {
-        InflowError::Other(anyhow::anyhow!("Pipeline execution failed: {}", e))
-    })?;
+    let results = pipeline
+        .run()
+        .await
+        .map_err(|e| InflowError::Other(anyhow::anyhow!("Pipeline execution failed: {e}")))?;
 
     // Print results table
     print_results(&results);
@@ -124,7 +118,7 @@ fn print_results(results: &[DownloadResult]) {
         .map(|result| {
             let date_range = result
                 .date_range
-                .map(|(min, max)| format!("{} → {}", min, max))
+                .map(|(min, max)| format!("{min} → {max}"))
                 .unwrap_or_default();
 
             let status = if result.is_success() {

@@ -29,9 +29,7 @@ pub fn download_results_table(results: &[(String, String, usize, usize, String, 
 }
 
 /// Build a table for cache status.
-pub fn cache_status_table(
-    rows: &[(String, usize, f64, String)],
-) -> Table {
+pub fn cache_status_table(rows: &[(String, usize, f64, String)]) -> Table {
     let mut table = Table::new();
     table.set_header(vec!["Symbol", "Rows", "Size (MB)", "Date Range"]);
 
@@ -39,7 +37,7 @@ pub fn cache_status_table(
         table.add_row(vec![
             symbol.clone(),
             row_count.to_string(),
-            format!("{:.2}", size_mb),
+            format!("{size_mb:.2}"),
             date_range.clone(),
         ]);
     }
@@ -63,7 +61,7 @@ mod tests {
         )];
 
         let table = download_results_table(&results);
-        let table_str = format!("{}", table);
+        let table_str = format!("{table}");
         assert!(table_str.contains("SPY"));
         assert!(table_str.contains("EODHD"));
         assert!(table_str.contains("100"));
@@ -79,7 +77,7 @@ mod tests {
         )];
 
         let table = cache_status_table(&rows);
-        let table_str = format!("{}", table);
+        let table_str = format!("{table}");
         assert!(table_str.contains("SPY"));
         assert!(table_str.contains("100"));
         assert!(table_str.contains("1.50"));

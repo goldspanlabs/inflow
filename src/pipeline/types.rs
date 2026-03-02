@@ -10,7 +10,7 @@ pub enum WindowChunk {
     OptionsWindow {
         /// Symbol (uppercased).
         symbol: String,
-        /// DataFrame with options data.
+        /// `DataFrame` with options data.
         df: DataFrame,
     },
 
@@ -18,7 +18,7 @@ pub enum WindowChunk {
     PricesComplete {
         /// Symbol (uppercased).
         symbol: String,
-        /// DataFrame with OHLCV prices.
+        /// `DataFrame` with OHLCV prices.
         df: DataFrame,
     },
 }
@@ -26,9 +26,6 @@ pub enum WindowChunk {
 /// Parameters for a download operation.
 #[derive(Debug, Clone)]
 pub struct DownloadParams {
-    /// Start date for download window (options only; if None, use default history).
-    pub from_date: Option<NaiveDate>,
-
     /// Period for historical data (prices): "1mo", "3mo", "6mo", "1y", "5y", "max".
     pub period: String,
 }
@@ -36,7 +33,6 @@ pub struct DownloadParams {
 impl Default for DownloadParams {
     fn default() -> Self {
         Self {
-            from_date: None,
             period: "1y".to_string(),
         }
     }
@@ -84,6 +80,7 @@ impl DownloadResult {
     }
 
     /// Create a result with errors.
+    #[must_use]
     pub fn with_errors(mut self, errors: Vec<String>) -> Self {
         self.errors = errors;
         self

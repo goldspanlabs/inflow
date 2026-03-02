@@ -26,8 +26,8 @@ pub const FIELDS: &str = "\
 
 // Strike range for 97% data coverage: ±65% of underlying price
 // This captures virtually all liquid options (ITM and OTM)
-pub const STRIKE_LOWER_MULTIPLIER: f64 = 0.35;  // 35% of price (65% OTM for puts)
-pub const STRIKE_UPPER_MULTIPLIER: f64 = 2.65;  // 265% of price (165% OTM for calls)
+pub const STRIKE_LOWER_MULTIPLIER: f64 = 0.35; // 35% of price (65% OTM for puts)
+pub const STRIKE_UPPER_MULTIPLIER: f64 = 2.65; // 265% of price (165% OTM for calls)
 
 /// Extract close price for a given date from cached prices.
 ///
@@ -58,9 +58,7 @@ async fn get_cached_price(
     for (date_val, close_val) in date_phys.iter().zip(close_f64.iter()) {
         if let (Some(d), Some(c)) = (date_val, close_val) {
             // Polars dates are days since epoch
-            if let Some(cached_date) =
-                chrono::NaiveDate::from_num_days_from_ce_opt(d + 719_162)
-            {
+            if let Some(cached_date) = chrono::NaiveDate::from_num_days_from_ce_opt(d + 719_162) {
                 if cached_date == date {
                     return Ok(Some(c));
                 }
@@ -213,6 +211,7 @@ impl Paginator {
     /// For minimum windows (1 day), attempts to partition by strike ranges based on
     /// underlying price. This avoids offset cap issues and fetches only liquid strikes.
     /// Falls back to full fetch if price unavailable.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub fn fetch_window_recursive<'a>(
         &'a self,
         symbol: &'a str,
@@ -253,12 +252,11 @@ impl Paginator {
                         )
                         .await;
                     return (recovered, recovery_err);
-                } else {
-                    tracing::info!(
-                        "No cached price available for {symbol} on {win_from}, \
-                         falling back to full fetch"
-                    );
                 }
+                tracing::info!(
+                    "No cached price available for {symbol} on {win_from}, \
+                     falling back to full fetch"
+                );
             }
 
             let from_str = win_from.format("%Y-%m-%d").to_string();
@@ -330,7 +328,15 @@ impl Paginator {
 
                 // First half
                 let (fetched, first_err) = self
-                    .fetch_window_recursive(symbol, option_type, win_from, mid, rows_fetched, tx, cache)
+                    .fetch_window_recursive(
+                        symbol,
+                        option_type,
+                        win_from,
+                        mid,
+                        rows_fetched,
+                        tx,
+                        cache,
+                    )
                     .await;
                 rows_fetched = fetched;
 
@@ -396,7 +402,15 @@ impl Paginator {
             pb.set_message(format!("{win_from} → {win_to}"));
 
             let (fetched, error) = self
-                .fetch_window_recursive(symbol, option_type, *win_from, *win_to, rows_fetched, tx, cache)
+                .fetch_window_recursive(
+                    symbol,
+                    option_type,
+                    *win_from,
+                    *win_to,
+                    rows_fetched,
+                    tx,
+                    cache,
+                )
                 .await;
             rows_fetched = fetched;
             if error.is_some() {
@@ -414,6 +428,7 @@ impl Paginator {
     /// When offset cap is hit on a minimum window, subdivide by strike price ranges
     /// based on the underlying price to recover missing data without duplicates.
     /// Covers 97% of data range (underlying price × 0.35 to 2.65).
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     async fn fetch_by_strike_range(
         &self,
         symbol: &str,
@@ -432,14 +447,20 @@ impl Paginator {
         );
 
         // Calculate midpoint to partition the range
-        let strike_mid = (strike_lower + strike_upper) / 2.0;
+        let strike_mid = f64::midpoint(strike_lower, strike_upper);
 
         // Fetch lower strike range
         let params_lower = vec![
             ("filter[underlying_symbol]".into(), symbol.to_string()),
             ("filter[type]".into(), option_type.to_string()),
-            ("filter[tradetime_from]".into(), win_from.format("%Y-%m-%d").to_string()),
-            ("filter[tradetime_to]".into(), win_to.format("%Y-%m-%d").to_string()),
+            (
+                "filter[tradetime_from]".into(),
+                win_from.format("%Y-%m-%d").to_string(),
+            ),
+            (
+                "filter[tradetime_to]".into(),
+                win_to.format("%Y-%m-%d").to_string(),
+            ),
             ("filter[strike_from]".into(), strike_lower.to_string()),
             ("filter[strike_to]".into(), strike_mid.to_string()),
             ("fields[options-eod]".into(), FIELDS.to_string()),
@@ -447,8 +468,7 @@ impl Paginator {
             ("sort".into(), "exp_date".to_string()),
         ];
 
-        let (rows_lower, hit_cap_lower, _err_lower) =
-            self.paginate_window(&params_lower).await;
+        let (rows_lower, hit_cap_lower, _err_lower) = self.paginate_window(&params_lower).await;
 
         if !rows_lower.is_empty() {
             match crate::providers::eodhd::parsing::normalize_rows(&rows_lower) {
@@ -473,17 +493,25 @@ impl Paginator {
         let params_upper = vec![
             ("filter[underlying_symbol]".into(), symbol.to_string()),
             ("filter[type]".into(), option_type.to_string()),
-            ("filter[tradetime_from]".into(), win_from.format("%Y-%m-%d").to_string()),
-            ("filter[tradetime_to]".into(), win_to.format("%Y-%m-%d").to_string()),
-            ("filter[strike_from]".into(), (strike_mid + 0.01).to_string()),
+            (
+                "filter[tradetime_from]".into(),
+                win_from.format("%Y-%m-%d").to_string(),
+            ),
+            (
+                "filter[tradetime_to]".into(),
+                win_to.format("%Y-%m-%d").to_string(),
+            ),
+            (
+                "filter[strike_from]".into(),
+                (strike_mid + 0.01).to_string(),
+            ),
             ("filter[strike_to]".into(), strike_upper.to_string()),
             ("fields[options-eod]".into(), FIELDS.to_string()),
             ("page[limit]".into(), PAGE_LIMIT.to_string()),
             ("sort".into(), "exp_date".to_string()),
         ];
 
-        let (rows_upper, hit_cap_upper, _err_upper) =
-            self.paginate_window(&params_upper).await;
+        let (rows_upper, hit_cap_upper, _err_upper) = self.paginate_window(&params_upper).await;
 
         if !rows_upper.is_empty() {
             match crate::providers::eodhd::parsing::normalize_rows(&rows_upper) {
@@ -512,9 +540,8 @@ impl Paginator {
                 "Offset cap still hit in lower strike range (${strike_lower:.2}-${strike_mid:.2}), \
                  would need further subdivision"
             );
-            final_error = Some(format!(
-                "offset cap hit in lower strike range, data may be incomplete"
-            ));
+            final_error =
+                Some("offset cap hit in lower strike range, data may be incomplete".to_string());
         }
 
         if hit_cap_upper {
@@ -523,9 +550,9 @@ impl Paginator {
                  would need further subdivision"
             );
             if final_error.is_none() {
-                final_error = Some(format!(
-                    "offset cap hit in upper strike range, data may be incomplete"
-                ));
+                final_error = Some(
+                    "offset cap hit in upper strike range, data may be incomplete".to_string(),
+                );
             }
         }
 

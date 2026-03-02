@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 /// Helper to create a temporary cache store.
 fn temp_cache() -> Arc<CacheStore> {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    Arc::new(CacheStore::new(temp_dir.into_path()))
+    Arc::new(CacheStore::new(temp_dir.keep()))
 }
 
 /// Helper to create a prices DataFrame for testing.
@@ -54,9 +54,7 @@ async fn test_write_prices_creates_file() {
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
-    let consumer_handle = tokio::spawn(async move {
-        run_writer(cache_clone, rx).await
-    });
+    let consumer_handle = tokio::spawn(async move { run_writer(cache_clone, rx).await });
 
     // Send prices chunk
     tx.send(WindowChunk::PricesComplete {
@@ -77,7 +75,11 @@ async fn test_write_prices_creates_file() {
 
     // Verify file exists
     let prices_path = cache.prices_path("TEST").expect("Failed to get path");
-    assert!(prices_path.exists(), "Prices file not created: {:?}", prices_path);
+    assert!(
+        prices_path.exists(),
+        "Prices file not created: {:?}",
+        prices_path
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -91,9 +93,7 @@ async fn test_write_options_deduplicates_on_merge() {
 
     // Spawn consumer in separate thread to avoid runtime nesting
     let cache_clone = Arc::clone(&cache);
-    let consumer_handle = tokio::spawn(async move {
-        run_writer(cache_clone, rx).await
-    });
+    let consumer_handle = tokio::spawn(async move { run_writer(cache_clone, rx).await });
 
     // Send chunks
     tx.send(WindowChunk::OptionsWindow {
@@ -119,7 +119,11 @@ async fn test_write_options_deduplicates_on_merge() {
 
     // Verify file exists
     let options_path = cache.options_path("SPY").expect("Failed to get path");
-    assert!(options_path.exists(), "Options file not created: {:?}", options_path);
+    assert!(
+        options_path.exists(),
+        "Options file not created: {:?}",
+        options_path
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -133,9 +137,7 @@ async fn test_write_options_merges_with_existing() {
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
-    let consumer_handle = tokio::spawn(async move {
-        run_writer(cache_clone, rx).await
-    });
+    let consumer_handle = tokio::spawn(async move { run_writer(cache_clone, rx).await });
 
     // Send first chunk (simulating existing/cached data)
     tx.send(WindowChunk::OptionsWindow {
@@ -178,9 +180,7 @@ async fn test_write_options_sorts_by_quote_date() {
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
-    let consumer_handle = tokio::spawn(async move {
-        run_writer(cache_clone, rx).await
-    });
+    let consumer_handle = tokio::spawn(async move { run_writer(cache_clone, rx).await });
 
     // Send chunks
     tx.send(WindowChunk::OptionsWindow {
@@ -209,7 +209,10 @@ async fn test_write_options_sorts_by_quote_date() {
 
     // Verify file was created
     let options_path = cache.options_path("SPY").expect("Failed to get path");
-    assert!(options_path.exists(), "Options file should be sorted and written");
+    assert!(
+        options_path.exists(),
+        "Options file should be sorted and written"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -221,9 +224,7 @@ async fn test_run_writer_returns_empty_errors_on_success() {
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
-    let consumer_handle = tokio::spawn(async move {
-        run_writer(cache_clone, rx).await
-    });
+    let consumer_handle = tokio::spawn(async move { run_writer(cache_clone, rx).await });
 
     // Send valid chunk
     tx.send(WindowChunk::PricesComplete {

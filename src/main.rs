@@ -9,8 +9,8 @@ mod pipeline;
 mod providers;
 mod utils;
 
-use cli::{Args, Command};
 use clap::Parser;
+use cli::{Args, Command};
 use config::Config;
 use error::InflowError;
 use std::process::exit;
@@ -30,7 +30,7 @@ async fn main() {
     let config = match Config::from_env() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             exit(e.exit_code());
         }
     };
@@ -40,17 +40,15 @@ async fn main() {
 
     // Execute command
     let result = match args.command {
-        Command::Download { target } => {
-            match commands::execute_download(&config, target).await {
-                Ok(_) => Ok(()),
-                Err(e) => Err(e),
-            }
-        }
+        Command::Download { target } => match commands::execute_download(&config, target).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        },
 
         Command::Status => {
             let cache = cache::CacheStore::new(config.data_root.clone());
             match commands::execute_status(&cache).await {
-                Ok(_) => Ok(()),
+                Ok(()) => Ok(()),
                 Err(e) => Err(InflowError::Other(e)),
             }
         }
@@ -63,7 +61,7 @@ async fn main() {
 
     // Handle result
     if let Err(e) = result {
-        eprintln!("{}", e);
+        eprintln!("{e}");
         exit(e.exit_code());
     }
 }

@@ -11,7 +11,7 @@ pub const EXCEL_DATE_EPOCH_OFFSET: i32 = 719_163;
 /// Handles the conversion from Polars' internal date representation
 /// (days since year 1 CE) to `chrono::NaiveDate`.
 pub fn scalar_to_naive_date(scalar: &Scalar) -> Option<NaiveDate> {
-    anyvalue_to_naive_date(&scalar.value())
+    anyvalue_to_naive_date(scalar.value())
 }
 
 /// Convert a Polars `AnyValue` to `NaiveDate`.
@@ -27,11 +27,14 @@ pub fn anyvalue_to_naive_date(val: &AnyValue) -> Option<NaiveDate> {
     }
 }
 
-/// Extract the min and max date from a DataFrame column.
+/// Extract the min and max date from a `DataFrame` column.
 ///
 /// Returns `Some((min_date, max_date))` if the column exists and contains valid dates,
 /// or `None` if the column doesn't exist or contains no valid dates.
-pub fn extract_date_range(df: &polars::prelude::DataFrame, col_name: &str) -> Option<(NaiveDate, NaiveDate)> {
+pub fn extract_date_range(
+    df: &polars::prelude::DataFrame,
+    col_name: &str,
+) -> Option<(NaiveDate, NaiveDate)> {
     let col = df.column(col_name).ok()?;
 
     let min = col

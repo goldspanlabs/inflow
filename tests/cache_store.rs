@@ -7,7 +7,7 @@ use std::sync::Arc;
 /// Helper to create a temporary cache store.
 fn temp_cache() -> Arc<CacheStore> {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    Arc::new(CacheStore::new(temp_dir.into_path()))
+    Arc::new(CacheStore::new(temp_dir.keep()))
 }
 
 /// Helper to create a simple test DataFrame.
@@ -33,7 +33,11 @@ async fn test_atomic_write_creates_correct_path() {
         .expect("Failed to write");
 
     // Verify file was created at the correct path
-    assert!(options_path.exists(), "File not created at path: {:?}", options_path);
+    assert!(
+        options_path.exists(),
+        "File not created at path: {:?}",
+        options_path
+    );
 
     // Verify the path contains the expected components
     let path_str = options_path.to_string_lossy();
@@ -69,10 +73,14 @@ async fn test_atomic_write_is_idempotent() {
         .expect("Failed to write second time");
 
     // Verify file still exists and was updated
-    let metadata2 = std::fs::metadata(&prices_path).expect("Failed to get metadata after second write");
+    let metadata2 =
+        std::fs::metadata(&prices_path).expect("Failed to get metadata after second write");
     let size2 = metadata2.len();
 
-    assert!(prices_path.exists(), "File should still exist after second write");
+    assert!(
+        prices_path.exists(),
+        "File should still exist after second write"
+    );
     // File sizes might differ slightly depending on Parquet compression, but both should exist
     assert!(size2 > 0, "File should have content");
 }
@@ -82,7 +90,9 @@ async fn test_read_parquet_returns_none_for_missing() {
     let cache = temp_cache();
 
     // Try to read a file that doesn't exist
-    let nonexistent_path = cache.prices_path("NONEXISTENT").expect("Failed to get path");
+    let nonexistent_path = cache
+        .prices_path("NONEXISTENT")
+        .expect("Failed to get path");
 
     let result = cache
         .read_parquet(&nonexistent_path)
@@ -110,7 +120,10 @@ async fn test_options_path_validation() {
 
     // Symbol with path separators should fail
     let invalid_result = cache.options_path("TEST/INVALID");
-    assert!(invalid_result.is_err(), "Symbol with / should fail validation");
+    assert!(
+        invalid_result.is_err(),
+        "Symbol with / should fail validation"
+    );
 
     // Symbol with backslashes should fail
     let invalid_result2 = cache.options_path("TEST\\INVALID");

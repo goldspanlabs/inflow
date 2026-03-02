@@ -23,7 +23,10 @@ fn test_saturday_with_friday_cache_skips_fetch() {
     let start = monday; // resume_from (from prices cache)
     let end = saturday; // today
 
-    assert!(should_skip_fetch(start, end), "Should skip fetch on Saturday");
+    assert!(
+        should_skip_fetch(start, end),
+        "Should skip fetch on Saturday"
+    );
 }
 
 #[test]
@@ -53,7 +56,10 @@ fn test_monday_with_friday_cache_fetches() {
     let end = monday; // today = Monday
 
     // start >= end: Monday >= Monday = true
-    assert!(should_skip_fetch(start, end), "Should skip fetch when resume date = today");
+    assert!(
+        should_skip_fetch(start, end),
+        "Should skip fetch when resume date = today"
+    );
 }
 
 #[test]
@@ -118,7 +124,10 @@ fn test_long_weekend_skip() {
     let start = wednesday;
     let end = tuesday;
 
-    assert!(should_skip_fetch(start, end), "Should skip - resume is in future");
+    assert!(
+        should_skip_fetch(start, end),
+        "Should skip - resume is in future"
+    );
 }
 
 #[test]
@@ -164,10 +173,16 @@ fn test_same_day_multiple_runs() {
 
     // First run: empty cache, fetch 730 days
     let history_start = tuesday - Duration::days(730);
-    assert!(!should_skip_fetch(history_start, tuesday), "First run: Fetch");
+    assert!(
+        !should_skip_fetch(history_start, tuesday),
+        "First run: Fetch"
+    );
 
     // Second run: cache has Tuesday data, resume = Tuesday, skip
-    assert!(should_skip_fetch(tuesday, tuesday), "Second run: Skip (already fetched today)");
+    assert!(
+        should_skip_fetch(tuesday, tuesday),
+        "Second run: Skip (already fetched today)"
+    );
 }
 
 #[test]
@@ -178,7 +193,10 @@ fn test_future_date_edge_case() {
     let today = NaiveDate::from_ymd_opt(2024, 1, 24).unwrap();
     let far_future = NaiveDate::from_ymd_opt(2025, 12, 31).unwrap();
 
-    assert!(should_skip_fetch(far_future, today), "Should skip if resume in far future");
+    assert!(
+        should_skip_fetch(far_future, today),
+        "Should skip if resume in far future"
+    );
 }
 
 #[test]
@@ -213,5 +231,8 @@ fn test_gap_in_data_before_skip() {
     let start = monday; // prices cache shows Monday first
     let end = monday; // today
 
-    assert!(should_skip_fetch(start, end), "Should skip - resume matches today after holiday");
+    assert!(
+        should_skip_fetch(start, end),
+        "Should skip - resume matches today after holiday"
+    );
 }

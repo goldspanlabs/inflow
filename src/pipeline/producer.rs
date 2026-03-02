@@ -20,12 +20,9 @@ pub async fn run_symbol_worker(
     shutdown: CancellationToken,
 ) -> DownloadResult {
     // Acquire semaphore slot
-    let _permit = match semaphore.acquire().await {
-        Ok(p) => p,
-        Err(_) => {
-            return DownloadResult::success(symbol, provider.name().to_string(), 0, 0, None)
-                .with_errors(vec!["Semaphore acquisition failed".to_string()])
-        }
+    let Ok(_permit) = semaphore.acquire().await else {
+        return DownloadResult::success(symbol, provider.name().to_string(), 0, 0, None)
+            .with_errors(vec!["Semaphore acquisition failed".to_string()]);
     };
 
     match provider

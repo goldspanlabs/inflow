@@ -1,4 +1,4 @@
-//! JSON parsing and DataFrame normalization for EODHD API responses.
+//! JSON parsing and `DataFrame` normalization for EODHD API responses.
 
 use anyhow::{Context, Result};
 use polars::prelude::*;
@@ -33,14 +33,31 @@ const COLUMN_MAP: &[(&str, &str)] = &[
 ];
 
 const NUMERIC_COLS: &[&str] = &[
-    "strike", "bid", "ask", "last", "open", "high", "low", "volume", "open_interest", "delta",
-    "gamma", "theta", "vega", "rho", "implied_volatility", "midpoint", "moneyness",
-    "theoretical", "dte",
+    "strike",
+    "bid",
+    "ask",
+    "last",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "open_interest",
+    "delta",
+    "gamma",
+    "theta",
+    "vega",
+    "rho",
+    "implied_volatility",
+    "midpoint",
+    "moneyness",
+    "theoretical",
+    "dte",
 ];
 
-/// Convert raw API rows into a normalized Polars `DataFrame`.
+/// Convert raw API rows into a normalized `DataFrame`.
 ///
 /// Applies column renames, date parsing, and numeric coercion.
+#[allow(clippy::implicit_hasher)]
 pub fn normalize_rows(rows: &[HashMap<String, String>]) -> Result<DataFrame> {
     if rows.is_empty() {
         return Ok(DataFrame::empty());

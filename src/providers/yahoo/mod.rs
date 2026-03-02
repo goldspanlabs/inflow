@@ -37,11 +37,11 @@ impl Default for YahooProvider {
 
 #[async_trait]
 impl crate::providers::DataProvider for YahooProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Yahoo"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "prices"
     }
 

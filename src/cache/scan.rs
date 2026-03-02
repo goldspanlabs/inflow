@@ -9,12 +9,6 @@ use std::path::Path;
 /// Information about a cached Parquet file.
 #[derive(Debug, Clone)]
 pub struct CacheFileInfo {
-    /// Symbol (filename without extension).
-    pub symbol: String,
-
-    /// File path.
-    pub path: String,
-
     /// File size in bytes.
     pub size_bytes: u64,
 
@@ -32,14 +26,6 @@ pub struct CacheFileInfo {
 ///
 /// Reads the Parquet file to get row count and date range (from `quote_date` or `date` column).
 pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
-    let symbol = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let path_str = path.to_string_lossy().to_string();
-
     // Get file size
     let size_bytes = tokio::fs::metadata(path)
         .await
@@ -57,12 +43,11 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
         )
         .ok();
 
-        let lf = match lf {
-            Some(lf) => lf,
-            None => return (0, None, None),
+        let Some(lf) = lf else {
+            return (0, None, None);
         };
 
-        let row_count = lf.clone().collect().ok().map(|df| df.height()).unwrap_or(0);
+        let row_count = lf.clone().collect().ok().map_or(0, |df| df.height());
 
         let (date_min, date_max) = if let Ok(df) = lf.collect() {
             let col_name = if df.schema().contains(&date_col_owned) {
@@ -79,13 +64,13 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
                 .column(col_name)
                 .ok()
                 .and_then(|col| col.min_reduce().ok())
-                .and_then(|s| anyvalue_to_naive_date(&s.value()));
+                .and_then(|s| anyvalue_to_naive_date(s.value()));
 
             let max = df
                 .column(col_name)
                 .ok()
                 .and_then(|col| col.max_reduce().ok())
-                .and_then(|s| anyvalue_to_naive_date(&s.value()));
+                .and_then(|s| anyvalue_to_naive_date(s.value()));
 
             (min, max)
         } else {
@@ -99,12 +84,9 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
     .unwrap_or((0, None, None));
 
     Ok(CacheFileInfo {
-        symbol,
-        path: path_str,
         size_bytes,
         row_count,
         date_min,
         date_max,
     })
 }
-
