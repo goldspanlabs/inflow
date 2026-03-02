@@ -135,7 +135,7 @@ impl crate::providers::DataProvider for EodhdProvider {
 
             let (new_rows, error) = self
                 .paginator
-                .fetch_all_for_type(&symbol, option_type, resume_from, &tx, &pb)
+                .fetch_all_for_type(&symbol, option_type, resume_from, &tx, &pb, cache)
                 .await;
 
             if let Some(err) = error {
