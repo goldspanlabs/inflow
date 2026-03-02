@@ -74,12 +74,14 @@ impl crate::providers::DataProvider for YahooProvider {
         let cached_lf = cache.read_parquet(&prices_path).await?;
 
         let (total_rows, date_range) = if let Some(lf) = cached_lf {
-            if let Ok(df) = lf.collect() {
-                let rows = df.height();
-                let date_range = extract_date_range(&df, PRICES_DATE_COLUMN);
-                (rows, date_range)
-            } else {
-                (new_rows, None)
+            // Use spawn_blocking for the blocking Polars collect operation
+            match tokio::task::spawn_blocking(move || lf.collect()).await {
+                Ok(Ok(df)) => {
+                    let rows = df.height();
+                    let date_range = extract_date_range(&df, PRICES_DATE_COLUMN);
+                    (rows, date_range)
+                }
+                _ => (new_rows, None),
             }
         } else {
             (new_rows, None)
