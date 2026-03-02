@@ -4,6 +4,8 @@ use anyhow::{bail, Context, Result};
 use polars::prelude::*;
 use std::path::{Path, PathBuf};
 
+use anyhow;
+
 /// Cache store for reading and writing Parquet files.
 #[derive(Debug, Clone)]
 pub struct CacheStore {
@@ -31,6 +33,18 @@ impl CacheStore {
     pub fn prices_path(&self, symbol: &str) -> Result<PathBuf> {
         let safe = self.validate_symbol(symbol)?;
         Ok(self.root.join("prices").join(format!("{safe}.parquet")))
+    }
+
+    /// Get the cache path for a symbol in a specific category.
+    ///
+    /// Returns the appropriate path based on category (options or prices).
+    /// This is a convenience method to avoid duplicating path selection logic.
+    pub fn get_path(&self, category: &str, symbol: &str) -> Result<PathBuf> {
+        match category {
+            "options" => self.options_path(symbol),
+            "prices" => self.prices_path(symbol),
+            _ => Err(anyhow::anyhow!("Unknown category: {}", category)),
+        }
     }
 
     /// Atomically write a DataFrame to the given path.

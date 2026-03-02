@@ -6,6 +6,7 @@ use crate::utils::OPTIONS_DEDUP_COLS;
 use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -61,8 +62,26 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
     let existing_df = cache.read_parquet(&path).await?.and_then(|lf| lf.collect().ok());
 
     // Merge chunks together
-    let mut merged_df = if let Some(existing) = existing_df {
-        let mut all_dfs = vec![existing.lazy()];
+    let mut merged_df = merge_options_dataframes(existing_df, chunks)?;
+
+    // Deduplicate and sort
+    deduplicate_options(&mut merged_df)?;
+    sort_by_quote_date(&mut merged_df)?;
+
+    cache.atomic_write(&path, &mut merged_df).await?;
+    Ok(())
+}
+
+/// Merge existing options DataFrame with new chunks.
+///
+/// If existing data is present, concatenates it with all chunks.
+/// Otherwise, concatenates chunks together.
+fn merge_options_dataframes(
+    existing: Option<DataFrame>,
+    chunks: Vec<DataFrame>,
+) -> Result<DataFrame> {
+    if let Some(existing_df) = existing {
+        let mut all_dfs = vec![existing_df.lazy()];
         for chunk in chunks {
             all_dfs.push(chunk.lazy());
         }
@@ -73,15 +92,16 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
             diagonal: true,
             ..Default::default()
         })?
-        .collect()?
+        .collect()
+        .context("Failed to collect merged DataFrame")
     } else {
         if chunks.is_empty() {
-            return Ok(());
+            return Ok(DataFrame::empty());
         }
 
         let all_dfs: Vec<_> = chunks.into_iter().map(|df| df.lazy()).collect();
         if all_dfs.is_empty() {
-            return Ok(());
+            return Ok(DataFrame::empty());
         }
 
         concat(all_dfs, UnionArgs {
@@ -90,28 +110,39 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
             diagonal: true,
             ..Default::default()
         })?
-        .collect()?
-    };
+        .collect()
+        .context("Failed to collect merged DataFrame")
+    }
+}
 
-    // Deduplicate
+/// Deduplicate options DataFrame on key columns.
+///
+/// Keeps the last occurrence of each unique row based on
+/// [`OPTIONS_DEDUP_COLS`](crate::utils::OPTIONS_DEDUP_COLS).
+fn deduplicate_options(df: &mut DataFrame) -> Result<()> {
     let available: Vec<String> = OPTIONS_DEDUP_COLS
         .iter()
-        .filter(|c| merged_df.schema().contains(c))
+        .filter(|c| df.schema().contains(c))
         .map(|c| c.to_string())
         .collect();
 
     if !available.is_empty() {
-        merged_df = merged_df.unique::<String, String>(Some(&available), UniqueKeepStrategy::Last, None)?;
+        *df = df.unique::<String, String>(Some(&available), UniqueKeepStrategy::Last, None)?;
     }
 
-    // Sort by quote_date if present
-    if merged_df.schema().contains("quote_date") {
-        merged_df = merged_df
+    Ok(())
+}
+
+/// Sort options DataFrame by quote_date if the column exists.
+fn sort_by_quote_date(df: &mut DataFrame) -> Result<()> {
+    if df.schema().contains("quote_date") {
+        let temp = mem::take(df);
+        *df = temp
             .lazy()
             .sort(["quote_date"], SortMultipleOptions::default())
-            .collect()?;
+            .collect()
+            .context("Failed to sort DataFrame by quote_date")?;
     }
 
-    cache.atomic_write(&path, &mut merged_df).await?;
     Ok(())
 }

@@ -1,9 +1,8 @@
 //! Status command implementation.
 
 use crate::cache::{scan_file, CacheStore};
+use crate::utils::cache_status_table;
 use anyhow::Result;
-use comfy_table::Table;
-use std::path::Path;
 
 /// Execute the status command.
 pub async fn execute(cache: &CacheStore) -> Result<()> {
@@ -37,23 +36,16 @@ async fn print_category_table(
     symbols: &[String],
     cache: &CacheStore,
 ) -> Result<()> {
-    let mut table = Table::new();
-    table.set_header(vec!["Symbol", "Rows", "Size (MB)", "Date Range"]);
-
     let date_col = if category == "options" {
         "quote_date"
     } else {
         "date"
     };
 
-    for symbol in symbols {
-        let path_result = if category == "options" {
-            cache.options_path(symbol)
-        } else {
-            cache.prices_path(symbol)
-        };
+    let mut table_data = Vec::new();
 
-        if let Ok(path) = path_result {
+    for symbol in symbols {
+        if let Ok(path) = cache.get_path(category, symbol) {
             if let Ok(info) = scan_file(&path, date_col).await {
                 let size_mb = info.size_bytes as f64 / 1_000_000.0;
                 let date_range = match (info.date_min, info.date_max) {
@@ -61,16 +53,17 @@ async fn print_category_table(
                     _ => String::new(),
                 };
 
-                table.add_row(vec![
+                table_data.push((
                     symbol.clone(),
-                    info.row_count.to_string(),
-                    format!("{:.2}", size_mb),
+                    info.row_count,
+                    size_mb,
                     date_range,
-                ]);
+                ));
             }
         }
     }
 
+    let table = cache_status_table(&table_data);
     println!("{table}");
     Ok(())
 }

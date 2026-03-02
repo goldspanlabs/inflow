@@ -4,10 +4,10 @@ use crate::cache::CacheStore;
 use crate::cli::DownloadTarget;
 use crate::error::InflowError;
 use crate::pipeline::{DownloadParams, DownloadResult, Pipeline};
-use crate::providers::build_providers;
+use crate::providers::{build_providers, filter_providers_by_category};
+use crate::utils::download_results_table;
 use crate::Config;
 use anyhow::Result;
-use comfy_table::Table;
 use std::sync::Arc;
 
 /// Execute a download command.
@@ -30,11 +30,7 @@ pub async fn execute(
             from,
             concurrency,
         } => {
-            let opts_providers: Vec<_> = providers
-                .iter()
-                .filter(|p| p.category() == "options")
-                .cloned()
-                .collect();
+            let opts_providers = filter_providers_by_category(&providers, "options");
 
             if opts_providers.is_empty() {
                 return Err(InflowError::Config(
@@ -55,11 +51,7 @@ pub async fn execute(
             period,
             concurrency,
         } => {
-            let prices_providers: Vec<_> = providers
-                .iter()
-                .filter(|p| p.category() == "prices")
-                .cloned()
-                .collect();
+            let prices_providers = filter_providers_by_category(&providers, "prices");
 
             if prices_providers.is_empty() {
                 return Err(InflowError::Config(
@@ -123,37 +115,31 @@ pub async fn execute(
 }
 
 fn print_results(results: &[DownloadResult]) {
-    let mut table = Table::new();
-    table.set_header(vec![
-        "Symbol",
-        "Provider",
-        "New Rows",
-        "Total Rows",
-        "Date Range",
-        "Status",
-    ]);
+    let table_data: Vec<_> = results
+        .iter()
+        .map(|result| {
+            let date_range = result
+                .date_range
+                .map(|(min, max)| format!("{} → {}", min, max))
+                .unwrap_or_default();
 
-    for result in results {
-        let date_range = result
-            .date_range
-            .map(|(min, max)| format!("{} → {}", min, max))
-            .unwrap_or_default();
+            let status = if result.is_success() {
+                "✓".to_string()
+            } else {
+                format!("✗ ({})", result.errors.join("; "))
+            };
 
-        let status = if result.is_success() {
-            "✓".to_string()
-        } else {
-            format!("✗ ({})", result.errors.join("; "))
-        };
+            (
+                result.symbol.clone(),
+                result.provider.clone(),
+                result.new_rows,
+                result.total_rows,
+                date_range,
+                status,
+            )
+        })
+        .collect();
 
-        table.add_row(vec![
-            result.symbol.clone(),
-            result.provider.clone(),
-            result.new_rows.to_string(),
-            result.total_rows.to_string(),
-            date_range,
-            status,
-        ]);
-    }
-
+    let table = download_results_table(&table_data);
     println!("\n{table}\n");
 }

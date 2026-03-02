@@ -51,3 +51,15 @@ pub fn build_providers(config: &crate::Config) -> Vec<Arc<dyn DataProvider>> {
 
     providers
 }
+
+/// Filter providers by category (options, prices, etc.).
+pub fn filter_providers_by_category(
+    providers: &[Arc<dyn DataProvider>],
+    category: &str,
+) -> Vec<Arc<dyn DataProvider>> {
+    providers
+        .iter()
+        .filter(|p| p.category() == category)
+        .cloned()
+        .collect()
+}
