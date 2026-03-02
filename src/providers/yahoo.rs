@@ -4,6 +4,7 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
+use crate::utils::extract_date_range;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -83,7 +84,7 @@ impl crate::providers::DataProvider for YahooProvider {
         let (total_rows, date_range) = if let Some(lf) = cached_lf {
             if let Ok(df) = lf.collect() {
                 let rows = df.height();
-                let date_range = extract_date_range(&df);
+                let date_range = extract_date_range(&df, "date");
                 (rows, date_range)
             } else {
                 (new_rows, None)
@@ -162,19 +163,3 @@ fn build_dataframe_from_quotes(quotes: &[yahoo::Quote], symbol: &str) -> Result<
     Ok(df)
 }
 
-fn extract_date_range(df: &DataFrame) -> Option<(NaiveDate, NaiveDate)> {
-    let col = df.column("date").ok()?;
-
-    let format_scalar = |s: &Scalar| -> Option<NaiveDate> {
-        match s.value() {
-            AnyValue::Date(days) => {
-                NaiveDate::from_num_days_from_ce_opt(days + 719_163)
-            }
-            _ => None,
-        }
-    };
-
-    let min = col.min_reduce().ok().and_then(|s| format_scalar(&s))?;
-    let max = col.max_reduce().ok().and_then(|s| format_scalar(&s))?;
-    Some((min, max))
-}

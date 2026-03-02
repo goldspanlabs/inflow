@@ -7,6 +7,7 @@ mod config;
 mod error;
 mod pipeline;
 mod providers;
+mod utils;
 
 use cli::{Args, Command, DownloadTarget};
 use clap::Parser;

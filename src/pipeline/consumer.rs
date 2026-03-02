@@ -2,20 +2,12 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::WindowChunk;
+use crate::utils::OPTIONS_DEDUP_COLS;
 use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Options deduplication columns (must match optopy-mcp).
-const DEDUP_COLS: &[&str] = &[
-    "quote_date",
-    "expiration",
-    "strike",
-    "option_type",
-    "expiration_type",
-];
 
 /// Run the writer consumer task.
 ///
@@ -102,7 +94,7 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
     };
 
     // Deduplicate
-    let available: Vec<String> = DEDUP_COLS
+    let available: Vec<String> = OPTIONS_DEDUP_COLS
         .iter()
         .filter(|c| merged_df.schema().contains(c))
         .map(|c| c.to_string())

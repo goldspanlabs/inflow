@@ -5,6 +5,7 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
+use crate::utils::{extract_date_range, json_value_to_string, parse_compact_rows, parse_standard_rows, OPTIONS_DEDUP_COLS};
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
@@ -68,14 +69,6 @@ const NUMERIC_COLS: &[&str] = &[
     "strike", "bid", "ask", "last", "open", "high", "low", "volume", "open_interest", "delta",
     "gamma", "theta", "vega", "rho", "implied_volatility", "midpoint", "moneyness",
     "theoretical", "dte",
-];
-
-const DEDUP_COLS: &[&str] = &[
-    "quote_date",
-    "expiration",
-    "strike",
-    "option_type",
-    "expiration_type",
 ];
 
 // -----------------------------------------------------------------------
@@ -537,7 +530,7 @@ impl crate::providers::DataProvider for EodhdProvider {
         let (total_rows, date_range) = if let Some(lf) = cached_lf {
             if let Ok(df) = lf.collect() {
                 let rows = df.height();
-                let date_range = extract_date_range(&df);
+                let date_range = extract_date_range(&df, "quote_date");
                 (rows, date_range)
             } else {
                 (0, None)
@@ -564,57 +557,6 @@ impl crate::providers::DataProvider for EodhdProvider {
 // Helpers
 // -----------------------------------------------------------------------
 
-fn parse_compact_rows(fields: &[String], data: &serde_json::Value) -> Vec<HashMap<String, String>> {
-    let Some(arr) = data.as_array() else {
-        return vec![];
-    };
-    arr.iter()
-        .filter_map(|row| {
-            let vals = row.as_array()?;
-            let mut map = HashMap::new();
-            for (i, field) in fields.iter().enumerate() {
-                if let Some(val) = vals.get(i) {
-                    let s = match val {
-                        serde_json::Value::Null => continue,
-                        serde_json::Value::String(s) => s.clone(),
-                        serde_json::Value::Number(n) => n.to_string(),
-                        serde_json::Value::Bool(b) => b.to_string(),
-                        other => other.to_string(),
-                    };
-                    map.insert(field.clone(), s);
-                }
-            }
-            Some(map)
-        })
-        .collect()
-}
-
-fn parse_standard_rows(data: &serde_json::Value) -> Vec<HashMap<String, String>> {
-    let Some(arr) = data.as_array() else {
-        return vec![];
-    };
-    arr.iter()
-        .filter_map(|row| {
-            let obj = row
-                .as_object()
-                .and_then(|o| o.get("attributes"))
-                .and_then(|a| a.as_object())
-                .or_else(|| row.as_object())?;
-            let mut map = HashMap::new();
-            for (k, v) in obj {
-                let s = match v {
-                    serde_json::Value::Null => continue,
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    other => other.to_string(),
-                };
-                map.insert(k.clone(), s);
-            }
-            Some(map)
-        })
-        .collect()
-}
 
 fn normalize_rows(rows: &[HashMap<String, String>]) -> Result<DataFrame> {
     if rows.is_empty() {
@@ -680,19 +622,3 @@ fn normalize_rows(rows: &[HashMap<String, String>]) -> Result<DataFrame> {
         .context("Failed to normalize DataFrame columns")
 }
 
-fn extract_date_range(df: &DataFrame) -> Option<(NaiveDate, NaiveDate)> {
-    let col = df.column("quote_date").ok()?;
-
-    let format_scalar = |s: &Scalar| -> Option<NaiveDate> {
-        match s.value() {
-            AnyValue::Date(days) => {
-                NaiveDate::from_num_days_from_ce_opt(days + 719_163)
-            }
-            _ => None,
-        }
-    };
-
-    let min = col.min_reduce().ok().and_then(|s| format_scalar(&s))?;
-    let max = col.max_reduce().ok().and_then(|s| format_scalar(&s))?;
-    Some((min, max))
-}

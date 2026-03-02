@@ -1,5 +1,6 @@
 //! Cache file scanning and inspection.
 
+use crate::utils::anyvalue_to_naive_date;
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use polars::prelude::*;
@@ -78,13 +79,13 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
                 .column(col_name)
                 .ok()
                 .and_then(|col| col.min_reduce().ok())
-                .and_then(|s| date_scalar_to_naive(&s.value()));
+                .and_then(|s| anyvalue_to_naive_date(&s.value()));
 
             let max = df
                 .column(col_name)
                 .ok()
                 .and_then(|col| col.max_reduce().ok())
-                .and_then(|s| date_scalar_to_naive(&s.value()));
+                .and_then(|s| anyvalue_to_naive_date(&s.value()));
 
             (min, max)
         } else {
@@ -107,12 +108,3 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
     })
 }
 
-/// Convert a Polars date scalar to NaiveDate.
-fn date_scalar_to_naive(val: &AnyValue) -> Option<NaiveDate> {
-    match val {
-        AnyValue::Date(days) => {
-            NaiveDate::from_num_days_from_ce_opt(days + 719_163)
-        }
-        _ => None,
-    }
-}
