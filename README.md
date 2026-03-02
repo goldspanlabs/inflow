@@ -178,7 +178,7 @@ Inflow uses a **concurrent producer–consumer architecture**:
 - **Category:** prices
 - **Data:** OHLCV + Adjusted Close + Volume
 - **Periods:** 1mo, 3mo, 6mo, 1y, 5y, max
-- **Resume:** Overwrites entire history (simpler than options)
+- **Resume:** Detects gap since last cached date and selects the smallest Yahoo period that covers it (e.g., 15-day gap fetches `1mo`); skips fetch entirely if already up to date
 
 ### Cache Layout
 
@@ -228,6 +228,8 @@ This prevents data corruption if the process is interrupted during write.
 cargo test
 ```
 
+The test suite includes 13 unit tests and 30 integration tests covering cache operations, consumer merge logic, fetch skip edge cases, and weekend-aware resume behavior.
+
 ### Building Release Binary
 
 ```bash
@@ -246,6 +248,7 @@ cargo build --release
 ```
 src/
 ├── main.rs              # Entry point; CLI dispatch
+├── lib.rs               # Library root (for integration tests)
 ├── error.rs             # Error types and exit codes
 ├── config.rs            # Configuration loading from env
 ├── cli.rs               # Clap derive CLI parser
@@ -261,13 +264,34 @@ src/
 │   └── consumer.rs      # Merge and write logic
 ├── providers/
 │   ├── mod.rs           # DataProvider trait; factory
-│   ├── eodhd.rs         # EODHD provider (~550 lines)
-│   └── yahoo.rs         # Yahoo provider (~150 lines)
+│   ├── eodhd/
+│   │   ├── mod.rs       # Provider trait implementation
+│   │   ├── types.rs     # API response types
+│   │   ├── http.rs      # HTTP client, retry, rate limiting
+│   │   ├── parsing.rs   # DataFrame normalization
+│   │   └── pagination.rs # Window pagination & recursion
+│   └── yahoo/
+│       ├── mod.rs       # Provider trait implementation
+│       ├── http.rs      # HTTP client wrapper
+│       └── parsing.rs   # DataFrame construction
+├── utils/
+│   ├── mod.rs           # Public API re-exports
+│   ├── constants.rs     # Shared column name constants
+│   ├── date.rs          # Date conversion utilities
+│   ├── json.rs          # JSON parsing helpers
+│   ├── resume.rs        # Resume date computation (weekend/holiday aware)
+│   └── tables.rs        # Table formatting utilities
 └── commands/
     ├── mod.rs           # Re-exports
     ├── download.rs      # Download command handler
     ├── status.rs        # Status command handler
     └── config.rs        # Config command handler
+
+tests/
+├── cache_store.rs       # CacheStore integration tests
+├── consumer.rs          # Consumer merge/write integration tests
+├── fetch_skip_logic.rs  # Fetch skip edge case tests
+└── resume_logic_weekends.rs  # Weekend-aware resume tests
 ```
 
 ## Performance Tips
