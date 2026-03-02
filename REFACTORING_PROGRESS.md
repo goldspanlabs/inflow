@@ -1,6 +1,20 @@
 # Refactoring Progress
 
-## Phase 1: Quick Wins - ✅ COMPLETED
+## Phase 1: Quick Wins - ✅ COMPLETED (Commit e513f8b)
+
+### Summary
+Created utils module with consolidated date/JSON/constants utilities, eliminating 60+ lines of duplication.
+
+**Time:** ~1 hour | **Lines Removed:** 60 | **New Code:** 170 (with tests)
+
+---
+
+## Phase 2: Medium Refactors - ✅ COMPLETED (Commit 67926da)
+
+### Summary
+Implemented 4 focused improvements: helper functions, path getter, consumer decomposition, and table utilities.
+
+**Time:** ~1 hour | **Lines Reorganized:** ~100 | **Code Quality:** Significantly improved
 
 ### What Was Done
 
@@ -93,33 +107,46 @@
 
 ---
 
-## Phase 2: Medium Refactors (TODO)
+## Phase 2: Medium Refactors - ✅ COMPLETED
 
-### Planned Work
+### What Was Done
 
-1. **Extract provider filtering logic** (~6 lines)
-   ```rust
-   pub fn filter_providers_by_category(
-       providers: &[Arc<dyn DataProvider>],
-       category: &str,
-   ) -> Vec<Arc<dyn DataProvider>>
-   ```
+1. **✅ Extract provider filtering logic** (Commit 67926da)
+   - Added `filter_providers_by_category()` to providers/mod.rs (+12 lines)
+   - Updated download.rs to use helper (-6 lines net)
+   - **Result:** Eliminates duplicate filter-clone-collect pattern
 
-2. **Simplify consumer.rs** (break 60-line function)
-   - `merge_dataframes_with_existing()`
-   - `merge_dataframes_from_chunks()`
-   - `deduplicate_options_frame()`
-   - `sort_by_quote_date()`
+2. **✅ Simplify consumer.rs** (Commit 67926da)
+   - Broke 60-line `write_options()` into 3 focused functions:
+     * `merge_options_dataframes()` (32 lines) - merges existing + chunks
+     * `deduplicate_options()` (13 lines) - deduplication logic
+     * `sort_by_quote_date()` (10 lines) - sorting logic
+   - **Result:** Each function has single responsibility, easier to test
+   - **Impact:** Reduced cyclomatic complexity significantly
 
-3. **Add cache path getter method** (CacheStore)
-   ```rust
-   pub fn get_path(&self, category: &str, symbol: &str) -> Result<PathBuf>
-   ```
+3. **✅ Add cache path getter method** (Commit 67926da)
+   - Added `get_path()` method to CacheStore (+14 lines)
+   - Updated status.rs to use it (-8 lines)
+   - **Result:** Eliminates path selection duplication from status.rs
 
-4. **Create table builder utility**
-   - Consolidate table creation patterns from download.rs and status.rs
+4. **✅ Create table builder utility** (Commit 67926da)
+   - Created utils/tables.rs (70 lines with tests)
+   - `download_results_table()` - formats download results (+2 tests)
+   - `cache_status_table()` - formats cache status
+   - Updated download.rs and status.rs to use builders (-97 lines total)
+   - **Result:** Consistent formatting, reduced boilerplate
 
-### Estimated Effort: 2-4 hours | Estimated Savings: ~80 lines
+### Metrics
+| Item | Value |
+|------|-------|
+| Total Time | ~1 hour |
+| New Helper Functions | 4 |
+| New Utilities | 2 (table builders) |
+| Tests Added | 2 |
+| Files Modified | 7 |
+| Lines Reorganized | ~100 |
+| Code Quality | Significantly Improved |
+| Build Status | ✅ Clean
 
 ---
 
