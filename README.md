@@ -4,20 +4,25 @@
 
 ## Features
 
-- 🚀 **Concurrent downloads** — Download multiple symbols in parallel with configurable concurrency limits
-- 📊 **Options chains** — Fetch historical options data from EODHD with automatic pagination and recursive window subdivision
+- 🚀 **Concurrent downloads** — Download multiple symbols in parallel with configurable concurrency
+- 📊 **Options chains** — Fetch historical options data from EODHD
 - 💹 **OHLCV prices** — Download historical price data from Yahoo Finance
-- 💾 **Incremental writes** — Each data chunk is atomically written to prevent corruption from interruptions
-- 🔄 **Resume support** — Downloads can be resumed from the last cached date
+- 🔄 **Resume support** — Only fetches data newer than what's already cached
 - ⚡ **Rate limiting** — Built-in adaptive rate limiting respects API quotas
-- 🛟 **Error recovery** — Exponential backoff on transient failures; non-fatal errors don't block other symbols
+- 🛟 **Error recovery** — Transient failures don't block other symbols
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/goldspanlabs/inflow.git
 cd inflow
+
+# Create a ~/.env file with your EODHD API key (for options data)
+echo "EODHD_API_KEY=your_api_key_here" >> ~/.env
+
+# Download prices (no API key needed) and options
 cargo run -- download prices SPY
+cargo run -- download options SPY
 cargo run -- status
 ```
 
@@ -159,150 +164,16 @@ QQQ    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 SPY    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 ```
 
-## Architecture
-
-### Producer–Consumer Pipeline
-
-Inflow uses a **concurrent producer–consumer architecture**:
-
-1. **Producers** — One worker per (provider, symbol) pair
-   - Acquire a semaphore slot to limit concurrency
-   - Call the provider's download method
-   - Send data chunks via an async MPSC channel
-
-2. **Consumer** — Single writer task
-   - Receives data chunks from all producers
-   - Merges with existing cache (for options)
-   - Deduplicates based on key columns
-   - Atomically writes to cache (via temporary file rename)
-
-### Data Providers
-
-#### EODHD Provider
-- **Category:** options
-- **Data:** Historical options chains (bid, ask, Greeks, etc.)
-- **Window strategy:** ~30-day rolling windows with recursive subdivision on offset cap
-- **Rate limiting:** Adaptive throttle based on `X-RateLimit-Remaining` header; exponential backoff on 429/5xx
-- **Resume:** Automatically fetches from latest cached date
-
-#### Yahoo Finance Provider
-- **Category:** prices
-- **Data:** OHLCV + Adjusted Close + Volume
-- **Periods:** 1mo, 3mo, 6mo, 1y, 5y, max
-- **Resume:** Detects gap since last cached date and selects the smallest Yahoo period that covers it (e.g., 15-day gap fetches `1mo`); skips fetch entirely if already up to date
-
-### Cache Layout
+## Cache Layout
 
 ```
 ~/.optopsy/cache/
 ├── options/
 │   ├── SPY.parquet
-│   ├── QQQ.parquet
 │   └── ...
 └── prices/
     ├── SPY.parquet
-    ├── QQQ.parquet
     └── ...
-```
-
-Each Parquet file contains:
-- **Options:** `underlying_symbol`, `option_type`, `expiration`, `quote_date`, `strike`, Greeks, bid/ask/last, etc.
-- **Prices:** `date`, `open`, `high`, `low`, `close`, `adjclose`, `volume`
-
-### Atomic Writes
-
-All Parquet writes are **atomic** via temporary file rename:
-
-```rust
-let tmp_path = path.with_extension("parquet.tmp");
-// Write to temp file
-ParquetWriter::new(File::create(&tmp_path)?).finish(df)?;
-// Atomic rename to final path
-std::fs::rename(&tmp_path, path)?;
-```
-
-This prevents data corruption if the process is interrupted during write.
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | All symbols succeeded |
-| 1 | Partial failure or runtime error |
-| 2 | Configuration error |
-
-## Development
-
-### Running Tests
-
-```bash
-cargo test
-```
-
-The test suite includes 13 unit tests and 30 integration tests covering cache operations, consumer merge logic, fetch skip edge cases, and weekend-aware resume behavior.
-
-### Building Release Binary
-
-```bash
-cargo build --release
-./target/release/inflow --help
-```
-
-### Dependency Versions
-
-**Critical compatibility:**
-- `polars = "0.53"` — must match optopy-mcp for Parquet format compatibility
-- `yahoo_finance_api = "4.1"` — must match optopy-mcp
-
-### Code Structure
-
-```
-src/
-├── main.rs              # Entry point; CLI dispatch
-├── lib.rs               # Library root (for integration tests)
-├── error.rs             # Error types and exit codes
-├── config.rs            # Configuration loading from env
-├── cli.rs               # Clap derive CLI parser
-├── cache/
-│   ├── mod.rs           # Re-exports
-│   ├── store.rs         # CacheStore; atomic writes
-│   └── scan.rs          # Cache file inspection
-├── pipeline/
-│   ├── mod.rs           # Re-exports
-│   ├── types.rs         # WindowChunk, DownloadResult, etc.
-│   ├── orchestrator.rs  # Pipeline orchestration
-│   ├── producer.rs      # Per-symbol worker logic
-│   └── consumer.rs      # Merge and write logic
-├── providers/
-│   ├── mod.rs           # DataProvider trait; factory
-│   ├── eodhd/
-│   │   ├── mod.rs       # Provider trait implementation
-│   │   ├── types.rs     # API response types
-│   │   ├── http.rs      # HTTP client, retry, rate limiting
-│   │   ├── parsing.rs   # DataFrame normalization
-│   │   └── pagination.rs # Window pagination & recursion
-│   └── yahoo/
-│       ├── mod.rs       # Provider trait implementation
-│       ├── http.rs      # HTTP client wrapper
-│       └── parsing.rs   # DataFrame construction
-├── utils/
-│   ├── mod.rs           # Public API re-exports
-│   ├── constants.rs     # Shared column name constants
-│   ├── date.rs          # Date conversion utilities
-│   ├── json.rs          # JSON parsing helpers
-│   ├── resume.rs        # Resume date computation (weekend/holiday aware)
-│   └── tables.rs        # Table formatting utilities
-└── commands/
-    ├── mod.rs           # Re-exports
-    ├── download.rs      # Download command handler
-    ├── status.rs        # Status command handler
-    └── config.rs        # Config command handler
-
-tests/
-├── cache_store.rs       # CacheStore integration tests
-├── consumer.rs          # Consumer merge/write integration tests
-├── fetch_skip_logic.rs  # Fetch skip edge case tests
-└── resume_logic_weekends.rs  # Weekend-aware resume tests
 ```
 
 ## Performance Tips
@@ -325,16 +196,11 @@ tests/
 
 ### "EODHD_API_KEY is invalid or expired"
 - Check your API key at https://eodhd.com
-- Ensure it's exported in your environment: `export EODHD_API_KEY=...`
-- Test with `inflow config`
-
-### "Offset cap hit; data may be incomplete"
-- EODHD API has a 10K offset limit per request
-- Inflow automatically subdivides windows when this happens
-- If it persists on 1-day windows, data exists but is truncated
+- Ensure it's set in `~/.env` or exported in your shell: `export EODHD_API_KEY=your_key`
+- Verify with `inflow config`
 
 ### "No data returned for {symbol}"
-- Symbol may not exist on Yahoo Finance
+- Symbol may not exist on the provider
 - Try a different period (e.g., `--period 1mo`)
 - Check that the symbol is valid
 
