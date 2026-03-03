@@ -195,27 +195,9 @@ inflow check
 inflow check --symbols SPY QQQ
 ```
 
-Output example:
+**Options checks:** trading day gaps (cross-referenced against prices calendar), duplicate rows, schema validation, null/outlier detection (zero prices, invalid deltas), and delta coverage (verifies each date has full call+put strike spread).
 
-```
-Data Quality Report
-
-  Options: SPY
-    [PASS] Gaps: No gaps detected (250 trading days)
-    [PASS] Duplicates: No duplicates (5000 rows)
-    [PASS] Schema: Schema valid (24 columns)
-    [PASS] Nulls/Outliers: No issues
-    [WARN] Delta Coverage: 75.0% of dates have full call+put delta spread (target: 80%)
-
-  Prices: SPY
-    [PASS] Schema: Schema valid (7 columns)
-    [PASS] Nulls/Outliers: No issues
-    [WARN] Gaps: 2 gap(s) > 3 trading days: 2024-12-23 to 2024-12-27 (5 days)
-```
-
-**Options checks:** trading day gaps (cross-referenced against prices calendar), duplicate rows, schema validation (24 expected columns with correct types), null/outlier detection (zero prices, invalid deltas), and delta coverage (verifies each date has full call+put strike spread).
-
-**Prices checks:** schema validation (7 OHLCV columns), null/outlier detection (zero or negative prices), and gap detection (consecutive missing trading days > 3).
+**Prices checks:** schema validation, null/outlier detection (zero or negative prices), and gap detection (consecutive missing trading days > 3).
 
 ## Cache Layout
 
