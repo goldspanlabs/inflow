@@ -18,37 +18,39 @@
 ## Quick Start
 
 ```bash
+# 1. Install
 git clone https://github.com/goldspanlabs/inflow.git
 cd inflow
+cargo install --path .
 
-# Create a ~/.env file with your EODHD API key (for options data)
+# 2. Configure (optional — only needed for options data)
 echo "EODHD_API_KEY=your_api_key_here" >> ~/.env
-cargo run -- download options SPY
 
-# Download prices (no API key needed) and options
-cargo run -- download prices SPY
-cargo run -- status
-cargo run -- check
+# 3. Download data
+inflow download prices SPY          # no API key needed
+inflow download options SPY         # requires EODHD_API_KEY
+inflow download all SPY QQQ IWM     # both at once
+
+# 4. Inspect
+inflow status
+inflow check
 ```
+
+> **Development:** If you're working on inflow itself, use `cargo run --` instead of `inflow`, e.g. `cargo run -- download options SPY`.
 
 ## Installation
 
 ### From Source
 
+Requires Rust 1.70+.
+
 ```bash
 git clone https://github.com/goldspanlabs/inflow.git
 cd inflow
-cargo build --release
-
-# Optionally copy to a directory on your PATH
-cp ./target/release/inflow /usr/local/bin/
+cargo install --path .
 ```
 
-### Requirements
-
-- Rust 1.70+
-- `EODHD_API_KEY` environment variable (for options downloads; optional)
-- Yahoo Finance API (no API key required)
+This builds a release binary and installs it to `~/.cargo/bin/` (which should already be on your `PATH` if Rust is installed via rustup).
 
 ## Configuration
 
