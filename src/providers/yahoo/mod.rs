@@ -16,6 +16,7 @@ use crate::utils::{compute_resume_date, extract_date_range, PRICES_DATE_COLUMN};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -52,12 +53,29 @@ impl crate::providers::DataProvider for YahooProvider {
         cache: &CacheStore,
         tx: mpsc::Sender<WindowChunk>,
         _shutdown: CancellationToken,
+        mp: &MultiProgress,
     ) -> Result<DownloadResult> {
         let symbol_upper = symbol.to_uppercase();
 
+        let pb = mp.add(ProgressBar::new_spinner());
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("  {prefix:.bold} {spinner} {msg}")
+                .expect("valid template"),
+        );
+        pb.set_prefix(format!("{symbol_upper} prices"));
+        pb.enable_steady_tick(std::time::Duration::from_millis(120));
+        pb.set_message("checking cache…");
+
         // Determine period: use cached resume date if available, otherwise use params
-        let prices_path = cache.prices_path(&symbol_upper)?;
-        let cached_lf = cache.read_parquet(&prices_path).await?;
+        let prices_path = cache.prices_path(&symbol_upper).map_err(|e| {
+            pb.abandon_with_message(format!("cache error: {e}"));
+            e
+        })?;
+        let cached_lf = cache.read_parquet(&prices_path).await.map_err(|e| {
+            pb.abandon_with_message(format!("read error: {e}"));
+            e
+        })?;
 
         // Check for resume opportunity and determine period to fetch
         let fetch_period = if let Some(lf) = cached_lf.clone() {
@@ -71,9 +89,9 @@ impl crate::providers::DataProvider for YahooProvider {
 
                         if days_gap <= 0 {
                             // Already up to date, no need to fetch
-                            tracing::info!(
-                                "Yahoo: {symbol_upper} already up to date (last cached: {resume_date})"
-                            );
+                            pb.finish_with_message(format!(
+                                "up to date (last cached: {resume_date})"
+                            ));
                             return Ok(DownloadResult::success(
                                 symbol_upper,
                                 self.name().to_string(),
@@ -96,10 +114,7 @@ impl crate::providers::DataProvider for YahooProvider {
                             "5y"
                         };
 
-                        tracing::info!(
-                            "Yahoo: {symbol_upper} gap detected ({days_gap} days), \
-                             fetching {period} to fill from {resume_date} to {today}"
-                        );
+                        pb.set_message(format!("fetching {period} ({days_gap} day gap)…"));
                         period.to_string()
                     } else {
                         // No resume date found, use params
@@ -110,12 +125,14 @@ impl crate::providers::DataProvider for YahooProvider {
             }
         } else {
             // No cached data, use params (full history fetch)
+            pb.set_message(format!("fetching {} history…", params.period));
             params.period.clone()
         };
 
         let quotes = YahooHttpClient::fetch_quotes(&symbol_upper, &fetch_period).await?;
 
         if quotes.is_empty() {
+            pb.abandon_with_message("no data returned");
             anyhow::bail!("No data returned for {symbol_upper} (period: {fetch_period})");
         }
 
@@ -130,7 +147,7 @@ impl crate::providers::DataProvider for YahooProvider {
         .await
         .ok();
 
-        tracing::info!("Yahoo: {symbol_upper} completed ({new_rows} new rows)");
+        pb.finish_with_message(format!("{new_rows} new rows"));
 
         // Note: total_rows and date_range are populated by the orchestrator
         // after the consumer finishes writing to cache.

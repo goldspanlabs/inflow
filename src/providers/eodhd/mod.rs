@@ -105,7 +105,7 @@ fn compute_options_resume_date(
         }
 
         // Fallback: return calendar day + 1 (market closed on weekends, so this will be caught on retry)
-        tracing::info!(
+        tracing::debug!(
             "Resuming {option_type} options from {candidate} (latest cached: {d})"
         );
         candidate
@@ -143,12 +143,12 @@ impl crate::providers::DataProvider for EodhdProvider {
         cache: &CacheStore,
         tx: mpsc::Sender<WindowChunk>,
         _shutdown: CancellationToken,
+        mp: &MultiProgress,
     ) -> Result<DownloadResult> {
         let symbol = symbol.to_uppercase();
         let request_count_before = self.paginator.http.request_count.load(Ordering::Relaxed);
         let explicit_range = params.from_date.is_some();
 
-        let mp = MultiProgress::new();
         let bar_style = ProgressStyle::default_bar()
             .template("  {prefix:.bold} [{bar:30.cyan/dim}] {pos}/{len} windows  {msg}")
             .expect("valid template")
@@ -231,7 +231,10 @@ impl crate::providers::DataProvider for EodhdProvider {
 
         let api_requests =
             self.paginator.http.request_count.load(Ordering::Relaxed) - request_count_before;
-        tracing::info!("EODHD: {symbol} completed ({api_requests} API requests)");
+        mp.println(format!(
+            "  EODHD: {symbol} completed ({api_requests} API requests)"
+        ))
+        .ok();
 
         // Note: total_rows and date_range are populated by the orchestrator
         // after the consumer finishes writing to cache.

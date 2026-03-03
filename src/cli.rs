@@ -3,6 +3,11 @@
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 
+/// Default concurrency for download commands.
+pub const DEFAULT_CONCURRENCY: usize = 4;
+/// Default period for historical price downloads.
+pub const DEFAULT_PERIOD: &str = "5y";
+
 #[derive(Parser, Debug)]
 #[command(name = "inflow")]
 #[command(about = "Download and cache market data for optopsy", long_about = None)]
@@ -31,6 +36,12 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         symbols: Vec<String>,
     },
+
+    /// Interactively browse available underlying symbols and trigger a download
+    List {
+        /// Optional search filter to narrow symbols (case-insensitive substring match)
+        search: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -49,7 +60,7 @@ pub enum DownloadTarget {
         to: Option<NaiveDate>,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 
@@ -59,11 +70,11 @@ pub enum DownloadTarget {
         symbols: Vec<String>,
 
         /// Period for historical data: 1mo, 3mo, 6mo, 1y, 5y
-        #[arg(long, default_value = "5y")]
+        #[arg(long, default_value = DEFAULT_PERIOD)]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 
@@ -81,11 +92,11 @@ pub enum DownloadTarget {
         to: Option<NaiveDate>,
 
         /// Period for historical prices: 1mo, 3mo, 6mo, 1y, 5y
-        #[arg(long, default_value = "5y")]
+        #[arg(long, default_value = DEFAULT_PERIOD)]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 }

@@ -3,6 +3,7 @@
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
+use indicatif::MultiProgress;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -10,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 /// Run a producer worker for a single symbol.
 ///
 /// Acquires the semaphore, calls the provider's download method, and returns the result.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_symbol_worker(
     symbol: String,
     provider: Arc<dyn DataProvider>,
@@ -18,6 +20,7 @@ pub async fn run_symbol_worker(
     semaphore: Arc<Semaphore>,
     tx: mpsc::Sender<WindowChunk>,
     shutdown: CancellationToken,
+    mp: Arc<MultiProgress>,
 ) -> DownloadResult {
     // Acquire semaphore slot
     let Ok(_permit) = semaphore.acquire().await else {
@@ -26,7 +29,7 @@ pub async fn run_symbol_worker(
     };
 
     match provider
-        .download(&symbol, &params, &cache, tx, shutdown)
+        .download(&symbol, &params, &cache, tx, shutdown, &mp)
         .await
     {
         Ok(result) => result,

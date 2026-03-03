@@ -64,6 +64,8 @@ async fn main() {
                 Err(e) => Err(InflowError::Other(e)),
             }
         }
+
+        Command::List { search } => commands::execute_list(&config, search.as_deref()).await,
     };
 
     // Handle result

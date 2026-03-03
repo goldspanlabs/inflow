@@ -12,6 +12,7 @@ use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
 use crate::utils::extract_date_range;
 use anyhow::Result;
+use indicatif::MultiProgress;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -41,6 +42,7 @@ impl Pipeline {
     /// to merge and write data, and returns aggregate results.
     pub async fn run(self) -> Result<Vec<DownloadResult>> {
         let shutdown = CancellationToken::new();
+        let mp = Arc::new(MultiProgress::new());
 
         // Channel for chunks (buffered to prevent blocking)
         let (tx, rx) = mpsc::channel::<WindowChunk>(self.concurrency * 4);
@@ -65,6 +67,7 @@ impl Pipeline {
                 let tx_clone = tx.clone();
                 let shutdown_clone = shutdown.clone();
 
+                let mp_clone = Arc::clone(&mp);
                 let handle = tokio::spawn(async move {
                     run_symbol_worker(
                         symbol_clone,
@@ -74,6 +77,7 @@ impl Pipeline {
                         semaphore_clone,
                         tx_clone,
                         shutdown_clone,
+                        mp_clone,
                     )
                     .await
                 });

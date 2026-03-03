@@ -7,6 +7,7 @@ use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use anyhow::Result;
 use async_trait::async_trait;
+use indicatif::MultiProgress;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +24,7 @@ pub trait DataProvider: Send + Sync {
     /// Download data for a symbol.
     ///
     /// Sends data chunks via `tx` as windows are completed.
+    /// Progress bars should be added to `mp` for coordinated terminal output.
     /// Returns a summary of the download.
     async fn download(
         &self,
@@ -31,6 +33,7 @@ pub trait DataProvider: Send + Sync {
         cache: &CacheStore,
         tx: mpsc::Sender<WindowChunk>,
         shutdown: CancellationToken,
+        mp: &MultiProgress,
     ) -> Result<DownloadResult>;
 }
 
