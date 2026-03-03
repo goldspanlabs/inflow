@@ -607,13 +607,14 @@ mod tests {
     #[test]
     fn test_calculate_strike_range() {
         let (lower, upper) = calculate_strike_range(500.0);
-        // 500 * 0.35 = 175, 500 * 2.65 = 1325
+        // 500 * 0.35 = 175, 500 * 2.65 = 1325 (allowing for small FP rounding error)
+        let tol = 1e-9;
         assert!(
-            (lower - 175.0).abs() < f64::EPSILON,
+            (lower - 175.0).abs() < tol,
             "lower should be 175, got {lower}"
         );
         assert!(
-            (upper - 1325.0).abs() < f64::EPSILON,
+            (upper - 1325.0).abs() < tol,
             "upper should be 1325, got {upper}"
         );
     }

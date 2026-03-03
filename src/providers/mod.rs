@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn test_build_providers_without_api_key() {
         let config = crate::Config {
-            data_root: std::path::PathBuf::from("/tmp/test"),
+            data_root: std::env::temp_dir(),
             eodhd_api_key: None,
         };
         let providers = build_providers(&config);
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_build_providers_with_api_key() {
         let config = crate::Config {
-            data_root: std::path::PathBuf::from("/tmp/test"),
+            data_root: std::env::temp_dir(),
             eodhd_api_key: Some("test-key".into()),
         };
         let providers = build_providers(&config);
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_filter_providers_by_options() {
         let config = crate::Config {
-            data_root: std::path::PathBuf::from("/tmp/test"),
+            data_root: std::env::temp_dir(),
             eodhd_api_key: Some("test-key".into()),
         };
         let providers = build_providers(&config);
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn test_filter_providers_by_prices() {
         let config = crate::Config {
-            data_root: std::path::PathBuf::from("/tmp/test"),
+            data_root: std::env::temp_dir(),
             eodhd_api_key: Some("test-key".into()),
         };
         let providers = build_providers(&config);
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn test_filter_providers_unknown_category() {
         let config = crate::Config {
-            data_root: std::path::PathBuf::from("/tmp/test"),
+            data_root: std::env::temp_dir(),
             eodhd_api_key: Some("test-key".into()),
         };
         let providers = build_providers(&config);
