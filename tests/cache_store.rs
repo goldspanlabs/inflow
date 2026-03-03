@@ -1,14 +1,8 @@
 //! Integration tests for CacheStore.
 
-use inflow::cache::CacheStore;
-use polars::prelude::*;
-use std::sync::Arc;
+mod common;
 
-/// Helper to create a temporary cache store.
-fn temp_cache() -> Arc<CacheStore> {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    Arc::new(CacheStore::new(temp_dir.keep()))
-}
+use polars::prelude::*;
 
 /// Helper to create a simple test DataFrame.
 fn create_test_df(height: usize) -> DataFrame {
@@ -21,7 +15,7 @@ fn create_test_df(height: usize) -> DataFrame {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_atomic_write_creates_correct_path() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
 
     let df = create_test_df(3);
     let mut df_mut = df.clone();
@@ -50,7 +44,7 @@ async fn test_atomic_write_creates_correct_path() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_atomic_write_is_idempotent() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let prices_path = cache.prices_path("SPY").expect("Failed to get path");
 
     // First write
@@ -87,7 +81,7 @@ async fn test_atomic_write_is_idempotent() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_read_parquet_returns_none_for_missing() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
 
     // Try to read a file that doesn't exist
     let nonexistent_path = cache
@@ -108,7 +102,7 @@ async fn test_read_parquet_returns_none_for_missing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_options_path_validation() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
 
     // Valid symbol should work
     let valid_result = cache.options_path("SPY");
@@ -135,7 +129,7 @@ async fn test_options_path_validation() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_list_symbols_returns_sorted() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
 
     // Create files in random order
     let symbols = vec!["ZZZ", "AAA", "MMM", "BBB"];

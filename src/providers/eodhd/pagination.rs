@@ -58,7 +58,9 @@ async fn get_cached_price(
     for (date_val, close_val) in date_phys.iter().zip(close_f64.iter()) {
         if let (Some(d), Some(c)) = (date_val, close_val) {
             // Polars dates are days since epoch
-            if let Some(cached_date) = chrono::NaiveDate::from_num_days_from_ce_opt(d + 719_162) {
+            if let Some(cached_date) = chrono::NaiveDate::from_num_days_from_ce_opt(
+                d + crate::utils::EXCEL_DATE_EPOCH_OFFSET,
+            ) {
                 if cached_date == date {
                     return Ok(Some(c));
                 }

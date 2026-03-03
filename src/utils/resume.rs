@@ -5,6 +5,8 @@
 use chrono::NaiveDate;
 use polars::prelude::*;
 
+use super::date::EXCEL_DATE_EPOCH_OFFSET;
+
 /// Compute the next trading day after the latest date in a `DataFrame` column.
 ///
 /// Scans the specified date column, finds the maximum date, and returns the next day.
@@ -30,8 +32,7 @@ pub fn compute_resume_date(df: &DataFrame, date_column: &str) -> Option<NaiveDat
     // Find max date by scanning physical representation
     let mut max_date: Option<NaiveDate> = None;
     for di in date_phys.iter().flatten() {
-        // Polars uses days since 1900-01-01, offset from CE epoch is 719_162
-        if let Some(date) = NaiveDate::from_num_days_from_ce_opt(di + 719_162) {
+        if let Some(date) = NaiveDate::from_num_days_from_ce_opt(di + EXCEL_DATE_EPOCH_OFFSET) {
             if max_date.is_none() || date > max_date.unwrap() {
                 max_date = Some(date);
             }
@@ -45,29 +46,42 @@ pub fn compute_resume_date(df: &DataFrame, date_column: &str) -> Option<NaiveDat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Datelike;
 
-    #[test]
-    fn test_resume_date_logic() {
-        // Test the date calculation logic: max_date + 1 day
-        let friday = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
-        let expected_saturday = friday.succ_opt().unwrap();
-        assert_eq!(
-            expected_saturday,
-            NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()
-        );
+    fn date_series(name: &str, dates: &[NaiveDate]) -> Series {
+        let days: Vec<i32> = dates
+            .iter()
+            .map(|d| d.num_days_from_ce() - EXCEL_DATE_EPOCH_OFFSET)
+            .collect();
+        Series::new(PlSmallStr::from(name), &days)
+            .cast(&DataType::Date)
+            .unwrap()
     }
 
     #[test]
-    fn test_resume_date_weekends() {
-        // Verify weekday progression for resume scenarios
-        let friday = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
-        let saturday = friday.succ_opt().unwrap();
-        let sunday = saturday.succ_opt().unwrap();
-        let monday = sunday.succ_opt().unwrap();
+    fn test_compute_resume_date_basic() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 17).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 1, 18).unwrap();
+        let d3 = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
 
-        // When prices cache has Monday, it should return Monday
-        // When prices cache is empty, fallback to Saturday (calendar day + 1)
-        assert!(monday > saturday);
-        assert_eq!((monday - friday).num_days(), 3);
+        let col = date_series("quote_date", &[d1, d2, d3]).into_column();
+        let df = DataFrame::new(3, vec![col]).unwrap();
+
+        let result = compute_resume_date(&df, "quote_date");
+        assert_eq!(result, Some(NaiveDate::from_ymd_opt(2024, 1, 20).unwrap()));
+    }
+
+    #[test]
+    fn test_compute_resume_date_empty() {
+        let col = date_series("quote_date", &[]).into_column();
+        let df = DataFrame::new(0, vec![col]).unwrap();
+        assert_eq!(compute_resume_date(&df, "quote_date"), None);
+    }
+
+    #[test]
+    fn test_compute_resume_date_missing_column() {
+        let col = Series::new(PlSmallStr::from("other"), &[1i32, 2, 3]).into_column();
+        let df = DataFrame::new(3, vec![col]).unwrap();
+        assert_eq!(compute_resume_date(&df, "quote_date"), None);
     }
 }

@@ -681,3 +681,281 @@ fn extract_date_set(df: &DataFrame, col_name: &str) -> BTreeSet<NaiveDate> {
     }
     dates
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::EXCEL_DATE_EPOCH_OFFSET;
+    use chrono::Datelike;
+
+    fn date_series(name: &str, dates: &[NaiveDate]) -> Series {
+        let days: Vec<i32> = dates
+            .iter()
+            .map(|d| d.num_days_from_ce() - EXCEL_DATE_EPOCH_OFFSET)
+            .collect();
+        Series::new(PlSmallStr::from(name), &days)
+            .cast(&DataType::Date)
+            .unwrap()
+    }
+
+    #[allow(clippy::redundant_closure_for_method_calls)]
+    fn options_df(
+        dates: &[NaiveDate],
+        strikes: &[f64],
+        option_types: &[&str],
+        expiration_types: &[&str],
+    ) -> DataFrame {
+        let n = dates.len();
+        let exp = vec![NaiveDate::from_ymd_opt(2024, 2, 16).unwrap(); n];
+        let symbols = vec!["SPY"; n];
+        let bids: Vec<f64> = vec![1.0; n];
+        let asks: Vec<f64> = vec![2.0; n];
+        let lasts: Vec<f64> = vec![1.5; n];
+        let deltas: Vec<f64> = vec![0.5; n];
+
+        let columns = vec![
+            date_series(OPTIONS_DATE_COLUMN, dates).into_column(),
+            date_series("expiration", &exp).into_column(),
+            Series::new(PlSmallStr::from("strike"), strikes).into_column(),
+            Series::new(
+                PlSmallStr::from("option_type"),
+                option_types
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            Series::new(
+                PlSmallStr::from("expiration_type"),
+                expiration_types
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>(),
+            )
+            .into_column(),
+            Series::new(
+                PlSmallStr::from("underlying_symbol"),
+                symbols.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            )
+            .into_column(),
+            Series::new(PlSmallStr::from("bid"), bids).into_column(),
+            Series::new(PlSmallStr::from("ask"), asks).into_column(),
+            Series::new(PlSmallStr::from("last"), lasts).into_column(),
+            Series::new(PlSmallStr::from("delta"), deltas).into_column(),
+        ];
+        DataFrame::new(n, columns).unwrap()
+    }
+
+    #[allow(clippy::redundant_closure_for_method_calls)]
+    fn prices_df(dates: &[NaiveDate]) -> DataFrame {
+        let n = dates.len();
+        let vals: Vec<f64> = (0..n).map(|i| 100.0 + i as f64).collect();
+        let columns = vec![
+            date_series(PRICES_DATE_COLUMN, dates).into_column(),
+            Series::new(PlSmallStr::from("open"), vals.clone()).into_column(),
+            Series::new(PlSmallStr::from("high"), vals.clone()).into_column(),
+            Series::new(PlSmallStr::from("low"), vals.clone()).into_column(),
+            Series::new(PlSmallStr::from("close"), vals.clone()).into_column(),
+            Series::new(PlSmallStr::from("adjclose"), vals.clone()).into_column(),
+            Series::new(PlSmallStr::from("volume"), vec![1_000_000i64; n]).into_column(),
+        ];
+        DataFrame::new(n, columns).unwrap()
+    }
+
+    // ─── extract_date_set ───────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_date_set_basic() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 1, 11).unwrap();
+        let d3 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(); // duplicate
+        let d4 = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap();
+        let d5 = NaiveDate::from_ymd_opt(2024, 1, 11).unwrap(); // duplicate
+
+        let col = date_series("quote_date", &[d1, d2, d3, d4, d5]).into_column();
+        let df = DataFrame::new(5, vec![col]).unwrap();
+
+        let set = extract_date_set(&df, "quote_date");
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(&d1));
+        assert!(set.contains(&d2));
+        assert!(set.contains(&d4));
+    }
+
+    #[test]
+    fn test_extract_date_set_missing_column() {
+        let col = Series::new(PlSmallStr::from("other"), &[1i32, 2]).into_column();
+        let df = DataFrame::new(2, vec![col]).unwrap();
+        let set = extract_date_set(&df, "quote_date");
+        assert!(set.is_empty());
+    }
+
+    // ─── check_options_duplicates ───────────────────────────────────────
+
+    #[test]
+    fn test_check_options_duplicates_no_dupes() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 1, 11).unwrap();
+        let df = options_df(
+            &[d1, d2],
+            &[100.0, 105.0],
+            &["call", "put"],
+            &["standard", "standard"],
+        );
+        let result = check_options_duplicates(&df);
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+
+    #[test]
+    fn test_check_options_duplicates_with_dupes() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        // Same date, strike, option_type, expiration_type → duplicate
+        let df = options_df(
+            &[d1, d1],
+            &[100.0, 100.0],
+            &["call", "call"],
+            &["standard", "standard"],
+        );
+        let result = check_options_duplicates(&df);
+        assert!(matches!(result.status, CheckStatus::Warn));
+        assert!(result.message.contains("1 duplicate"));
+    }
+
+    // ─── check_options_gaps ─────────────────────────────────────────────
+
+    #[test]
+    fn test_check_options_gaps_no_gaps() {
+        let dates = vec![
+            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 11).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(),
+        ];
+        let opts = options_df(&dates, &[100.0; 3], &["call"; 3], &["standard"; 3]);
+        let prices = prices_df(&dates);
+        let result = check_options_gaps(&opts, Some(&prices));
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+
+    #[test]
+    fn test_check_options_gaps_missing_days() {
+        let all_dates = vec![
+            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 11).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(),
+        ];
+        // Options only has first and last day
+        let opts_dates = vec![all_dates[0], all_dates[2]];
+        let opts = options_df(&opts_dates, &[100.0; 2], &["call"; 2], &["standard"; 2]);
+        let prices = prices_df(&all_dates);
+        let result = check_options_gaps(&opts, Some(&prices));
+        assert!(matches!(result.status, CheckStatus::Warn));
+        assert!(result.message.contains("1 missing trading day"));
+    }
+
+    // ─── check_prices_gaps ──────────────────────────────────────────────
+
+    #[test]
+    fn test_check_prices_gaps_no_long_gaps() {
+        // Mon-Fri contiguous weekdays
+        let dates = vec![
+            NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(),  // Mon
+            NaiveDate::from_ymd_opt(2024, 1, 9).unwrap(),  // Tue
+            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap(), // Wed
+            NaiveDate::from_ymd_opt(2024, 1, 11).unwrap(), // Thu
+            NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(), // Fri
+        ];
+        let df = prices_df(&dates);
+        let result = check_prices_gaps(&df);
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+
+    // ─── check_prices_schema ────────────────────────────────────────────
+
+    #[test]
+    fn test_check_prices_schema_valid() {
+        let dates = vec![NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()];
+        let df = prices_df(&dates);
+        let result = check_prices_schema(&df);
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+
+    #[test]
+    fn test_check_prices_schema_missing_col() {
+        // DataFrame missing "close"
+        let dates = vec![NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()];
+        let columns = vec![
+            date_series(PRICES_DATE_COLUMN, &dates).into_column(),
+            Series::new(PlSmallStr::from("open"), vec![100.0]).into_column(),
+            Series::new(PlSmallStr::from("high"), vec![101.0]).into_column(),
+            Series::new(PlSmallStr::from("low"), vec![99.0]).into_column(),
+            // "close" deliberately missing
+            Series::new(PlSmallStr::from("adjclose"), vec![100.0]).into_column(),
+            Series::new(PlSmallStr::from("volume"), vec![1_000_000i64]).into_column(),
+        ];
+        let df = DataFrame::new(1, columns).unwrap();
+        let result = check_prices_schema(&df);
+        assert!(matches!(result.status, CheckStatus::Warn));
+        assert!(result.message.contains("close"));
+    }
+
+    // ─── check_options_nulls_outliers ────────────────────────────────────
+
+    #[test]
+    fn test_check_options_nulls_no_issues() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        let df = options_df(&[d1], &[100.0], &["call"], &["standard"]);
+        let result = check_options_nulls_outliers(&df);
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+
+    // ─── check_options_delta_coverage ────────────────────────────────────
+
+    #[test]
+    #[allow(clippy::redundant_closure_for_method_calls)]
+    fn test_check_options_delta_coverage() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        // Build a DataFrame with good delta spread: calls and puts from 0.1 to 0.9
+        let mut dates = Vec::new();
+        let mut strikes = Vec::new();
+        let mut types = Vec::new();
+        let mut exp_types = Vec::new();
+        let mut deltas = Vec::new();
+
+        for opt_type in &["call", "put"] {
+            for delta_val in &[0.1, 0.3, 0.5, 0.7, 0.9] {
+                dates.push(d1);
+                strikes.push(100.0 + delta_val * 10.0);
+                types.push(*opt_type);
+                exp_types.push("standard");
+                deltas.push(*delta_val);
+            }
+        }
+
+        let n = dates.len();
+        let exp = vec![NaiveDate::from_ymd_opt(2024, 2, 16).unwrap(); n];
+        let symbols: Vec<String> = vec!["SPY".to_string(); n];
+        let bids: Vec<f64> = vec![1.0; n];
+        let asks: Vec<f64> = vec![2.0; n];
+        let lasts: Vec<f64> = vec![1.5; n];
+        let type_strings: Vec<String> = types.iter().map(|s| s.to_string()).collect();
+        let exp_type_strings: Vec<String> = exp_types.iter().map(|s| s.to_string()).collect();
+
+        let columns = vec![
+            date_series(OPTIONS_DATE_COLUMN, &dates).into_column(),
+            date_series("expiration", &exp).into_column(),
+            Series::new(PlSmallStr::from("strike"), strikes).into_column(),
+            Series::new(PlSmallStr::from("option_type"), type_strings).into_column(),
+            Series::new(PlSmallStr::from("expiration_type"), exp_type_strings).into_column(),
+            Series::new(PlSmallStr::from("underlying_symbol"), symbols).into_column(),
+            Series::new(PlSmallStr::from("bid"), bids).into_column(),
+            Series::new(PlSmallStr::from("ask"), asks).into_column(),
+            Series::new(PlSmallStr::from("last"), lasts).into_column(),
+            Series::new(PlSmallStr::from("delta"), deltas).into_column(),
+        ];
+        let df = DataFrame::new(n, columns).unwrap();
+
+        let result = check_options_delta_coverage(&df);
+        // With deltas 0.1-0.9 for both calls and puts, coverage should pass
+        assert!(matches!(result.status, CheckStatus::Pass));
+    }
+}

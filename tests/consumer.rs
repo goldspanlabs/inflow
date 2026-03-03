@@ -1,17 +1,12 @@
 //! Integration tests for consumer writer task.
 
-use inflow::cache::CacheStore;
+mod common;
+
 use inflow::pipeline::consumer::run_writer;
 use inflow::pipeline::types::WindowChunk;
 use polars::prelude::*;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Helper to create a temporary cache store.
-fn temp_cache() -> Arc<CacheStore> {
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-    Arc::new(CacheStore::new(temp_dir.keep()))
-}
 
 /// Helper to create a prices DataFrame for testing.
 fn create_prices_df() -> DataFrame {
@@ -47,7 +42,7 @@ fn create_options_df(dates: &[&str], strikes: &[f64]) -> DataFrame {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_prices_creates_file() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
     let df = create_prices_df();
@@ -84,7 +79,7 @@ async fn test_write_prices_creates_file() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_options_deduplicates_on_merge() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
     // Create two options chunks with duplicate rows
@@ -128,7 +123,7 @@ async fn test_write_options_deduplicates_on_merge() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_options_merges_with_existing() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
     // Create initial data chunks to send through consumer
@@ -171,7 +166,7 @@ async fn test_write_options_merges_with_existing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_options_sorts_by_quote_date() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
     // Create chunks with out-of-order dates
@@ -217,7 +212,7 @@ async fn test_write_options_sorts_by_quote_date() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_run_writer_returns_empty_errors_on_success() {
-    let cache = temp_cache();
+    let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
     let df = create_prices_df();

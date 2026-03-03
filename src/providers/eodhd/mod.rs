@@ -54,8 +54,9 @@ fn compute_options_resume_date(
             {
                 // Convert i32 days since epoch to NaiveDate
                 // Polars uses days since 1900-01-01, so offset is (1900 - -4713) * 365.25 ≈ 719_163
-                if let Some(date) = chrono::NaiveDate::from_num_days_from_ce_opt(date_i32 + 719_162)
-                {
+                if let Some(date) = chrono::NaiveDate::from_num_days_from_ce_opt(
+                    date_i32 + crate::utils::EXCEL_DATE_EPOCH_OFFSET,
+                ) {
                     if max_date.is_none() || date > max_date.unwrap() {
                         max_date = Some(date);
                     }
@@ -79,7 +80,7 @@ fn compute_options_resume_date(
                         .iter()
                         .filter_map(|d_i32| {
                             d_i32.and_then(|di| {
-                                chrono::NaiveDate::from_num_days_from_ce_opt(di + 719_162)
+                                chrono::NaiveDate::from_num_days_from_ce_opt(di + crate::utils::EXCEL_DATE_EPOCH_OFFSET)
                             })
                         })
                         .collect();
