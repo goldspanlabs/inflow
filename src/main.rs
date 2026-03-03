@@ -66,6 +66,14 @@ async fn main() {
         }
 
         Command::List { search } => commands::execute_list(&config, search.as_deref()).await,
+
+        Command::Delete { symbols } => {
+            let cache = cache::CacheStore::new(config.data_root.clone());
+            match commands::execute_delete(&cache, &symbols).await {
+                Ok(()) => Ok(()),
+                Err(e) => Err(InflowError::Other(e)),
+            }
+        }
     };
 
     // Handle result

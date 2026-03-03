@@ -42,6 +42,12 @@ pub enum Command {
         /// Optional search filter to narrow symbols (case-insensitive substring match)
         search: Option<String>,
     },
+
+    /// Delete cached data for one or more symbols
+    Delete {
+        /// Symbols to delete (e.g., SPY, QQQ)
+        symbols: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
