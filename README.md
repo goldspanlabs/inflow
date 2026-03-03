@@ -10,6 +10,7 @@
 - 🔄 **Resume support** — Only fetches data newer than what's already cached
 - ⚡ **Rate limiting** — Built-in adaptive rate limiting respects API quotas
 - 🛟 **Error recovery** — Transient failures don't block other symbols
+- 🔍 **Data quality checks** — Validate cached data for gaps, duplicates, schema issues, and outliers
 
 ## Quick Start
 
@@ -24,6 +25,7 @@ cargo run -- download options SPY
 # Download prices (no API key needed) and options
 cargo run -- download prices SPY
 cargo run -- status
+cargo run -- check
 ```
 
 ## Installation
@@ -163,6 +165,40 @@ Symbol │ Rows  │ Size (MB) │ Date Range
 QQQ    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 SPY    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 ```
+
+### Check Data Quality
+
+Validate cached data for gaps, duplicates, schema issues, and outliers:
+
+```bash
+# Check all cached symbols
+inflow check
+
+# Check specific symbols
+inflow check --symbols SPY QQQ
+```
+
+Output example:
+
+```
+Data Quality Report
+
+  Options: SPY
+    [PASS] Gaps: No gaps detected (250 trading days)
+    [PASS] Duplicates: No duplicates (5000 rows)
+    [PASS] Schema: Schema valid (24 columns)
+    [PASS] Nulls/Outliers: No issues
+    [WARN] Delta Coverage: 75.0% of dates have full call+put delta spread (target: 80%)
+
+  Prices: SPY
+    [PASS] Schema: Schema valid (7 columns)
+    [PASS] Nulls/Outliers: No issues
+    [WARN] Gaps: 2 gap(s) > 3 trading days: 2024-12-23 to 2024-12-27 (5 days)
+```
+
+**Options checks:** trading day gaps (cross-referenced against prices calendar), duplicate rows, schema validation (24 expected columns with correct types), null/outlier detection (zero prices, invalid deltas), and delta coverage (verifies each date has full call+put strike spread).
+
+**Prices checks:** schema validation (7 OHLCV columns), null/outlier detection (zero or negative prices), and gap detection (consecutive missing trading days > 3).
 
 ## Cache Layout
 
