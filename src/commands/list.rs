@@ -40,10 +40,17 @@ async fn fetch_underlying_symbols(api_key: &str) -> Result<Vec<String>, InflowEr
         .await
         .map_err(|e| InflowError::Other(anyhow::anyhow!("Failed to parse symbol list: {e}")))?;
 
-    let symbols: Vec<String> = api_resp
-        .data
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+    let data = api_resp.data.ok_or_else(|| {
+        InflowError::Other(anyhow::anyhow!(
+            "EODHD API response missing expected 'data' field for symbol list"
+        ))
+    })?;
+
+    let symbols: Vec<String> = serde_json::from_value(data).map_err(|e| {
+        InflowError::Other(anyhow::anyhow!(
+            "Failed to deserialize EODHD symbol list: {e}"
+        ))
+    })?;
 
     Ok(symbols)
 }
