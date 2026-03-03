@@ -65,48 +65,54 @@ pub async fn execute(cache: &CacheStore, symbols: &[String]) -> Result<()> {
 
     println!("\nData Quality Report\n");
 
-    // Cache prices DataFrames to avoid reading the same Parquet twice
-    // (once during options gap check, once during prices checks).
-    let mut prices_cache: HashMap<String, DataFrame> = HashMap::new();
-
-    for symbol in &options_symbols {
-        let opts_path = cache.options_path(symbol)?;
-        let prices_path = cache.prices_path(symbol)?;
-
-        let options = cache.read_parquet(&opts_path).await?;
-        let prices = cache.read_parquet(&prices_path).await?;
-
-        if let Some(options_lf) = options {
-            let options_data = collect_blocking(options_lf).await?;
-            let prices_data = match prices {
-                Some(lf) => {
-                    let df = collect_blocking(lf).await?;
-                    prices_cache.insert(symbol.clone(), df);
-                    prices_cache.get(symbol)
-                }
-                None => None,
-            };
-            print_section(
-                &format!("Options: {symbol}"),
-                &check_options(&options_data, prices_data),
-            );
-        }
-    }
-
-    for symbol in &prices_symbols {
-        // Reuse cached DataFrame if already loaded during options checks
-        let prices_data = if let Some(df) = prices_cache.get(symbol) {
-            Some(df.clone())
-        } else {
-            let prices_path = cache.prices_path(symbol)?;
-            match cache.read_parquet(&prices_path).await? {
-                Some(lf) => Some(collect_blocking(lf).await?),
-                None => None,
+    // Merge symbols from both categories into a single ordered list
+    let all_symbols: Vec<String> = {
+        let mut seen = BTreeSet::new();
+        let mut merged = Vec::new();
+        for s in options_symbols.iter().chain(prices_symbols.iter()) {
+            if seen.insert(s.clone()) {
+                merged.push(s.clone());
             }
+        }
+        merged
+    };
+    let options_set: BTreeSet<&String> = options_symbols.iter().collect();
+    let prices_set: BTreeSet<&String> = prices_symbols.iter().collect();
+
+    for symbol in &all_symbols {
+        let prices_path = cache.prices_path(symbol)?;
+        let prices_data = match cache.read_parquet(&prices_path).await? {
+            Some(lf) => Some(collect_blocking(lf).await?),
+            None => None,
         };
 
-        if let Some(ref df) = prices_data {
-            print_section(&format!("Prices: {symbol}"), &check_prices(df));
+        let mut has_output = false;
+
+        if options_set.contains(symbol) {
+            let opts_path = cache.options_path(symbol)?;
+            if let Some(options_lf) = cache.read_parquet(&opts_path).await? {
+                let options_data = collect_blocking(options_lf).await?;
+                let results = check_options(&options_data, prices_data.as_ref());
+                if has_issues(&results) {
+                    if !has_output {
+                        println!("  {symbol}");
+                        has_output = true;
+                    }
+                    print_section("Options", &results);
+                }
+            }
+        }
+
+        if prices_set.contains(symbol) {
+            if let Some(ref df) = prices_data {
+                let results = check_prices(df);
+                if has_issues(&results) {
+                    if !has_output {
+                        println!("  {symbol}");
+                    }
+                    print_section("Prices", &results);
+                }
+            }
         }
     }
 
@@ -134,21 +140,28 @@ fn resolve_symbols(cache: &CacheStore, category: &str, filter: &[String]) -> Res
 
 // ─── Output formatting ─────────────────────────────────────────────────────
 
+fn has_issues(results: &[CheckResult]) -> bool {
+    results
+        .iter()
+        .any(|r| !matches!(r.status, CheckStatus::Pass))
+}
+
 fn print_section(header: &str, results: &[CheckResult]) {
-    println!("  {header}");
-    let pass_style = Style::new().green().bold();
     let warn_style = Style::new().yellow().bold();
     let fail_style = Style::new().red().bold();
 
+    println!("    {header}");
     for r in results {
+        if matches!(r.status, CheckStatus::Pass) {
+            continue;
+        }
         let tag = match r.status {
-            CheckStatus::Pass => pass_style.apply_to("[PASS]"),
+            CheckStatus::Pass => unreachable!(),
             CheckStatus::Warn => warn_style.apply_to("[WARN]"),
             CheckStatus::Fail => fail_style.apply_to("[FAIL]"),
         };
-        println!("    {tag} {}: {}", r.name, r.message);
+        println!("      {tag} {}: {}", r.name, r.message);
     }
-    println!();
 }
 
 // ─── Options checks ────────────────────────────────────────────────────────
@@ -313,13 +326,15 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
     }
 
     // Zero-price checks using native chunked array iteration (avoids df.clone())
+    let total = df.height();
     let mut zero_cols = Vec::new();
     for &col_name in &["bid", "ask", "last"] {
         if let Ok(c) = df.column(col_name) {
             if let Ok(ca) = c.f64() {
                 let zeros: usize = ca.into_iter().filter(|v| *v == Some(0.0)).count();
                 if zeros > 0 {
-                    zero_cols.push(format!("{col_name}({zeros})"));
+                    let pct = (zeros as f64 / total as f64) * 100.0;
+                    zero_cols.push(format!("{col_name}({zeros}, {pct:.1}%)"));
                 }
             }
         }
@@ -516,6 +531,7 @@ fn check_prices_nulls_outliers(df: &DataFrame) -> CheckResult {
     }
 
     // Zero or negative prices using native chunked array iteration (avoids df.clone())
+    let total = df.height();
     for &col_name in &["open", "high", "low", "close", "adjclose"] {
         if let Ok(c) = df.column(col_name) {
             if let Ok(ca) = c.f64() {
@@ -524,7 +540,10 @@ fn check_prices_nulls_outliers(df: &DataFrame) -> CheckResult {
                     .filter(|v| matches!(v, Some(x) if *x <= 0.0))
                     .count();
                 if bad > 0 {
-                    issues.push(format!("{bad} zero/negative values in {col_name}"));
+                    let pct = (bad as f64 / total as f64) * 100.0;
+                    issues.push(format!(
+                        "{bad} zero/negative values in {col_name} ({pct:.1}%)"
+                    ));
                 }
             }
         }
