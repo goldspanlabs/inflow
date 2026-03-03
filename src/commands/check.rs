@@ -332,8 +332,8 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
         if let Ok(c) = df.column(col_name) {
             if let Ok(ca) = c.f64() {
                 let zeros: usize = ca.into_iter().filter(|v| *v == Some(0.0)).count();
-                if zeros > 0 {
-                    let pct = (zeros as f64 / total as f64) * 100.0;
+                let pct = (zeros as f64 / total as f64) * 100.0;
+                if pct >= 5.0 {
                     zero_cols.push(format!("{col_name}({zeros}, {pct:.1}%)"));
                 }
             }
