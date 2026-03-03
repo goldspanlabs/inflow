@@ -338,65 +338,103 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
     }
 }
 
-/// 5. Delta coverage: % of trading dates with liquid strikes (0.2 <= |delta| <= 0.8).
+/// 5. Delta coverage: % of trading dates where both calls and puts span
+///    from near-ATM (|delta| ≥ 0.8) out to the wings (|delta| ≤ 0.2).
 fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
+    use std::collections::HashMap;
+
     let name = "Delta Coverage";
 
-    let has_delta = df.column("delta").is_ok();
-    let has_date = df.column(OPTIONS_DATE_COLUMN).is_ok();
+    let Ok(date_col) = df.column(OPTIONS_DATE_COLUMN) else {
+        return CheckResult::warn(name, "Missing quote_date column".to_string());
+    };
+    let Ok(delta_col) = df.column("delta").and_then(|c| c.f64()) else {
+        return CheckResult::warn(name, "Missing or invalid delta column".to_string());
+    };
+    let Ok(type_col) = df.column("option_type").and_then(|c| c.str()) else {
+        return CheckResult::warn(name, "Missing or invalid option_type column".to_string());
+    };
 
-    if !has_delta || !has_date {
-        return CheckResult::warn(name, "Missing delta or quote_date column".to_string());
+    // Aggregate min/max |delta| per (date, option_type)
+    // Key: (date_index, option_type) → (min_abs_delta, max_abs_delta)
+    let mut group_stats: HashMap<(i32, bool), (f64, f64)> = HashMap::new();
+    let mut all_dates: BTreeSet<i32> = BTreeSet::new();
+
+    for i in 0..df.height() {
+        let Ok(AnyValue::Date(date_val)) = date_col.get(i) else {
+            continue;
+        };
+        let Some(delta) = delta_col.get(i).map(f64::abs) else {
+            continue;
+        };
+        let Some(opt_type) = type_col.get(i) else {
+            continue;
+        };
+
+        all_dates.insert(date_val);
+        let is_call = opt_type.eq_ignore_ascii_case("call");
+        let key = (date_val, is_call);
+
+        group_stats
+            .entry(key)
+            .and_modify(|(min_d, max_d)| {
+                if delta < *min_d {
+                    *min_d = delta;
+                }
+                if delta > *max_d {
+                    *max_d = delta;
+                }
+            })
+            .or_insert((delta, delta));
     }
 
-    // Count total distinct dates
-    let total_dates = df
-        .clone()
-        .lazy()
-        .select([col(OPTIONS_DATE_COLUMN)])
-        .unique(None, UniqueKeepStrategy::First);
-
-    let total_count = match total_dates.collect() {
-        Ok(tdf) => tdf.height(),
-        Err(e) => return CheckResult::fail(name, format!("Failed: {e}")),
-    };
-
-    // Count distinct dates with liquid strikes: 0.2 <= |delta| <= 0.8
-    // Use (delta >= 0.2 AND delta <= 0.8) OR (delta <= -0.2 AND delta >= -0.8)
-    let liquid = df
-        .clone()
-        .lazy()
-        .filter(
-            (col("delta")
-                .gt_eq(lit(0.2))
-                .and(col("delta").lt_eq(lit(0.8))))
-            .or(col("delta")
-                .lt_eq(lit(-0.2))
-                .and(col("delta").gt_eq(lit(-0.8)))),
-        )
-        .select([col(OPTIONS_DATE_COLUMN)])
-        .unique(None, UniqueKeepStrategy::First);
-
-    let liquid_count = match liquid.collect() {
-        Ok(ldf) => ldf.height(),
-        Err(e) => return CheckResult::fail(name, format!("Failed: {e}")),
-    };
-
-    if total_count == 0 {
+    let total_dates = all_dates.len();
+    if total_dates == 0 {
         return CheckResult::warn(name, "No trading dates found".to_string());
     }
 
-    let pct = (liquid_count as f64 / total_count as f64) * 100.0;
+    // A date passes if both call and put groups exist and each has
+    // min(|delta|) ≤ 0.2 AND max(|delta|) ≥ 0.8
+    let passing_dates: BTreeSet<i32> = all_dates
+        .iter()
+        .copied()
+        .filter(|&date| {
+            let call_ok = group_stats
+                .get(&(date, true))
+                .is_some_and(|&(min_d, max_d)| min_d <= 0.2 && max_d >= 0.8);
+            let put_ok = group_stats
+                .get(&(date, false))
+                .is_some_and(|&(min_d, max_d)| min_d <= 0.2 && max_d >= 0.8);
+            call_ok && put_ok
+        })
+        .collect();
+
+    let passing_count = passing_dates.len();
+    let pct = (passing_count as f64 / total_dates as f64) * 100.0;
 
     if pct >= 80.0 {
         CheckResult::pass(
             name,
-            format!("{pct:.1}% of dates have liquid strikes (target: 80%)"),
+            format!("{pct:.1}% of dates have full call+put delta spread (target: 80%)"),
         )
     } else {
+        // Collect up to 5 sample failing dates
+        let failing: Vec<String> = all_dates
+            .difference(&passing_dates)
+            .take(5)
+            .filter_map(|&d| {
+                NaiveDate::from_num_days_from_ce_opt(d + 719_163).map(|nd| nd.to_string())
+            })
+            .collect();
+        let sample = if failing.is_empty() {
+            String::new()
+        } else {
+            format!("; sample failing: {}", failing.join(", "))
+        };
+
         CheckResult::warn(
             name,
-            format!("{pct:.1}% of dates have liquid strikes (target: 80%)"),
+            format!("{pct:.1}% of dates have full call+put delta spread (target: 80%){sample}"),
         )
     }
 }
