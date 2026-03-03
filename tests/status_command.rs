@@ -6,14 +6,14 @@ use chrono::NaiveDate;
 use inflow::commands::status;
 use polars::prelude::*;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_status_empty_cache() {
     let cache = common::temp_cache();
     let result = status::execute(&cache).await;
     assert!(result.is_ok(), "empty cache should not panic");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_status_with_prices() {
     let cache = common::temp_cache();
 
@@ -35,7 +35,7 @@ async fn test_status_with_prices() {
     assert!(result.is_ok(), "prices cache should display without error");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_status_with_options_and_prices() {
     let cache = common::temp_cache();
 
