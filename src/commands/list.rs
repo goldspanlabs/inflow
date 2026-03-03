@@ -3,7 +3,8 @@
 use crate::cli::DownloadTarget;
 use crate::config::Config;
 use crate::error::InflowError;
-use dialoguer::{Select, theme::ColorfulTheme};
+use crate::providers::eodhd::types::ApiResponse;
+use dialoguer::{theme::ColorfulTheme, Select};
 
 const DATA_TYPE_OPTIONS: [&str; 3] = ["Options", "Prices", "Both"];
 const DEFAULT_CONCURRENCY: usize = 4;
@@ -30,10 +31,15 @@ async fn fetch_underlying_symbols(api_key: &str) -> Result<Vec<String>, InflowEr
         )));
     }
 
-    let symbols: Vec<String> = response
+    let api_resp: ApiResponse = response
         .json()
         .await
         .map_err(|e| InflowError::Other(anyhow::anyhow!("Failed to parse symbol list: {e}")))?;
+
+    let symbols: Vec<String> = api_resp
+        .data
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
 
     Ok(symbols)
 }
