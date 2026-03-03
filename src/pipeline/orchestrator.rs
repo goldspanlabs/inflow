@@ -10,6 +10,7 @@ use crate::pipeline::consumer::run_writer;
 use crate::pipeline::producer::run_symbol_worker;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
+use crate::utils::extract_date_range;
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
@@ -102,6 +103,26 @@ impl Pipeline {
         };
         if !writer_errors.is_empty() {
             tracing::warn!("Writer errors: {:?}", writer_errors);
+        }
+
+        // Now that the consumer has finished writing, populate total_rows and date_range
+        for result in &mut results {
+            let date_col = match result.provider.as_str() {
+                "EODHD" => "quote_date",
+                _ => "date",
+            };
+            let path = match result.provider.as_str() {
+                "EODHD" => self.cache.options_path(&result.symbol),
+                _ => self.cache.prices_path(&result.symbol),
+            };
+            if let Ok(path) = path {
+                if let Ok(Some(lf)) = self.cache.read_parquet(&path).await {
+                    if let Ok(Ok(df)) = tokio::task::spawn_blocking(move || lf.collect()).await {
+                        result.total_rows = df.height();
+                        result.date_range = extract_date_range(&df, date_col);
+                    }
+                }
+            }
         }
 
         Ok(results)

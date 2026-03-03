@@ -58,17 +58,25 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
     let path = cache.options_path(symbol)?;
 
     // Read existing cache
-    let existing_df = cache
-        .read_parquet(&path)
-        .await?
-        .and_then(|lf| lf.collect().ok());
+    let cached = cache.read_parquet(&path).await?;
+    let existing_df = if let Some(lf) = cached {
+        tokio::task::spawn_blocking(move || lf.collect().ok())
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
 
-    // Merge chunks together
-    let mut merged_df = merge_options_dataframes(existing_df, chunks)?;
-
-    // Deduplicate and sort
-    deduplicate_options(&mut merged_df)?;
-    sort_by_quote_date(&mut merged_df)?;
+    // Merge, deduplicate, and sort (all blocking Polars work)
+    let mut merged_df = tokio::task::spawn_blocking(move || -> Result<DataFrame> {
+        let mut df = merge_options_dataframes(existing_df, chunks)?;
+        deduplicate_options(&mut df)?;
+        sort_by_quote_date(&mut df)?;
+        Ok(df)
+    })
+    .await
+    .context("Spawn blocking panicked")??;
 
     cache.atomic_write(&path, &mut merged_df).await?;
     Ok(())

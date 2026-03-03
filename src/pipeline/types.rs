@@ -56,8 +56,11 @@ pub struct DownloadResult {
     /// Date range (min, max) of the final cached data.
     pub date_range: Option<(NaiveDate, NaiveDate)>,
 
-    /// Errors encountered (non-fatal).
+    /// Errors encountered (fatal — download failed).
     pub errors: Vec<String>,
+
+    /// Warnings encountered (non-fatal — data was still downloaded).
+    pub warnings: Vec<String>,
 }
 
 impl DownloadResult {
@@ -76,6 +79,7 @@ impl DownloadResult {
             total_rows,
             date_range,
             errors: vec![],
+            warnings: vec![],
         }
     }
 
@@ -86,7 +90,14 @@ impl DownloadResult {
         self
     }
 
-    /// Check if the result represents success (no errors).
+    /// Create a result with warnings (non-fatal issues).
+    #[must_use]
+    pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Check if the result represents success (no fatal errors).
     pub fn is_success(&self) -> bool {
         self.errors.is_empty()
     }

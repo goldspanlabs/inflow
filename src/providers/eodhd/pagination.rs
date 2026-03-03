@@ -44,7 +44,7 @@ async fn get_cached_price(
         return Ok(None);
     };
 
-    let df = lf.collect()?;
+    let df = tokio::task::spawn_blocking(move || lf.collect()).await??;
 
     // Filter to the requested date
     let date_col = df.column("date")?;
@@ -228,7 +228,7 @@ impl Paginator {
         Box::pin(async move {
             let span_days = (win_to - win_from).num_days();
 
-            tracing::info!(
+            tracing::debug!(
                 "Fetching {symbol} {option_type} options: {win_from} to {win_to} \
                  ({span_days} days) — {rows_fetched} total rows so far"
             );
@@ -236,7 +236,7 @@ impl Paginator {
             // For minimum windows (1 day), try price-informed strike partitioning first
             if span_days == 0 {
                 if let Ok(Some(price)) = get_cached_price(cache, symbol, win_from).await {
-                    tracing::info!(
+                    tracing::debug!(
                         "Using cached price for {symbol} on {win_from}: ${price:.2}, \
                          using price-informed strike partitioning"
                     );
@@ -253,7 +253,7 @@ impl Paginator {
                         .await;
                     return (recovered, recovery_err);
                 }
-                tracing::info!(
+                tracing::debug!(
                     "No cached price available for {symbol} on {win_from}, \
                      falling back to full fetch"
                 );
@@ -302,9 +302,9 @@ impl Paginator {
             if hit_cap && span_days <= MIN_WINDOW_DAYS {
                 // Minimum window still hit cap despite price-informed partitioning
                 // This means even the strike ranges had 10K+ rows (extreme volatility)
-                tracing::warn!(
+                tracing::debug!(
                     "Offset cap still hit for {symbol} {option_type} on minimum window ({win_from} to {win_to}) \
-                     even with strike partitioning, data may be incomplete (would need further subdivision by strike)"
+                     even with strike partitioning, data may be incomplete"
                 );
                 return (
                     rows_fetched,
@@ -319,7 +319,7 @@ impl Paginator {
                 // Undo partial count — subdivision will re-fetch this range
                 rows_fetched -= window_rows;
 
-                tracing::warn!(
+                tracing::debug!(
                     "Offset cap hit for {symbol} {option_type} ({win_from} to {win_to}), \
                      subdividing into smaller windows"
                 );
@@ -441,7 +441,7 @@ impl Paginator {
     ) -> (usize, Option<String>) {
         let (strike_lower, strike_upper) = calculate_strike_range(price);
 
-        tracing::info!(
+        tracing::debug!(
             "Strike range recovery for {symbol} {option_type}: price=${price:.2}, \
              fetching strikes ${strike_lower:.2}-${strike_upper:.2} (±65%)"
         );
@@ -536,18 +536,16 @@ impl Paginator {
         let mut final_error = None;
 
         if hit_cap_lower {
-            tracing::warn!(
-                "Offset cap still hit in lower strike range (${strike_lower:.2}-${strike_mid:.2}), \
-                 would need further subdivision"
+            tracing::debug!(
+                "Offset cap still hit in lower strike range (${strike_lower:.2}-${strike_mid:.2})"
             );
             final_error =
                 Some("offset cap hit in lower strike range, data may be incomplete".to_string());
         }
 
         if hit_cap_upper {
-            tracing::warn!(
-                "Offset cap still hit in upper strike range (${strike_mid:.2}-${strike_upper:.2}), \
-                 would need further subdivision"
+            tracing::debug!(
+                "Offset cap still hit in upper strike range (${strike_mid:.2}-${strike_upper:.2})"
             );
             if final_error.is_none() {
                 final_error = Some(
@@ -556,7 +554,7 @@ impl Paginator {
             }
         }
 
-        tracing::info!(
+        tracing::debug!(
             "Strike range recovery complete: {symbol} {option_type}, \
              {rows_fetched} rows recovered"
         );

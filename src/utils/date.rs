@@ -23,6 +23,10 @@ pub fn anyvalue_to_naive_date(val: &AnyValue) -> Option<NaiveDate> {
         AnyValue::Date(days) => {
             NaiveDate::from_num_days_from_ce_opt(days + EXCEL_DATE_EPOCH_OFFSET)
         }
+        AnyValue::Datetime(us, _, _) | AnyValue::DatetimeOwned(us, _, _) => {
+            let secs = us / 1_000_000;
+            chrono::DateTime::from_timestamp(secs, 0).map(|dt| dt.date_naive())
+        }
         _ => None,
     }
 }

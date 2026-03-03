@@ -10,7 +10,6 @@ pub mod types;
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
-use crate::utils::extract_date_range;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Duration;
@@ -88,7 +87,7 @@ fn compute_options_resume_date(
                     // Find first trading date >= candidate
                     for trading_date in trading_dates {
                         if trading_date >= candidate {
-                            tracing::info!(
+                            tracing::debug!(
                                 "Resuming {option_type} options from {trading_date} (latest cached: {d}, \
                                  skipping weekends/holidays)"
                             );
@@ -97,7 +96,7 @@ fn compute_options_resume_date(
                     }
 
                     // No future trading date found in prices cache
-                    tracing::warn!(
+                    tracing::debug!(
                         "No future trading date found in prices cache after {d}. \
                          Resuming from calendar date {candidate} (may skip to next trading day on retry)"
                     );
@@ -158,20 +157,34 @@ impl crate::providers::DataProvider for EodhdProvider {
         let mut new_rows_total: usize = 0;
 
         // Check cache to enable resume: find the latest quote_date for each option_type
-        let cached_df = cache
+        let cached_options = cache
             .read_parquet(&cache.options_path(&symbol).unwrap_or_default())
             .await
             .ok()
-            .flatten()
-            .and_then(|lf| lf.collect().ok());
+            .flatten();
+        let cached_df = if let Some(lf) = cached_options {
+            tokio::task::spawn_blocking(move || lf.collect().ok())
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
 
         // Load prices cache for weekend-aware trading day detection
-        let prices_df = cache
+        let cached_prices = cache
             .read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
             .await
             .ok()
-            .flatten()
-            .and_then(|lf| lf.collect().ok());
+            .flatten();
+        let prices_df = if let Some(lf) = cached_prices {
+            tokio::task::spawn_blocking(move || lf.collect().ok())
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
 
         for option_type in &["call", "put"] {
             let pb = mp.add(ProgressBar::new(0));
@@ -199,33 +212,15 @@ impl crate::providers::DataProvider for EodhdProvider {
             new_rows_total += new_rows;
         }
 
-        // Read cache to get totals
-        let options_path = cache.options_path(&symbol)?;
-        let final_lf = cache.read_parquet(&options_path).await?;
-
-        let (total_rows, date_range) = if let Some(lf) = final_lf {
-            if let Ok(df) = lf.collect() {
-                let rows = df.height();
-                let date_range = extract_date_range(&df, "quote_date");
-                (rows, date_range)
-            } else {
-                (0, None)
-            }
-        } else {
-            (0, None)
-        };
-
         let api_requests =
             self.paginator.http.request_count.load(Ordering::Relaxed) - request_count_before;
         tracing::info!("EODHD: {symbol} completed ({api_requests} API requests)");
 
-        Ok(DownloadResult::success(
-            symbol,
-            self.name().to_string(),
-            new_rows_total,
-            total_rows,
-            date_range,
+        // Note: total_rows and date_range are populated by the orchestrator
+        // after the consumer finishes writing to cache.
+        Ok(
+            DownloadResult::success(symbol, self.name().to_string(), new_rows_total, 0, None)
+                .with_warnings(errors),
         )
-        .with_errors(errors))
     }
 }

@@ -121,10 +121,12 @@ fn print_results(results: &[DownloadResult]) {
                 .map(|(min, max)| format!("{min} → {max}"))
                 .unwrap_or_default();
 
-            let status = if result.is_success() {
-                "✓".to_string()
-            } else {
+            let status = if !result.errors.is_empty() {
                 format!("✗ ({})", result.errors.join("; "))
+            } else if !result.warnings.is_empty() {
+                format!("⚠ ({})", result.warnings.join("; "))
+            } else {
+                "✓".to_string()
             };
 
             (

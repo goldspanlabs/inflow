@@ -114,7 +114,7 @@ impl HttpClient {
                 if let Ok(remaining_str) = remaining.to_str() {
                     if let Ok(remaining_int) = remaining_str.parse::<u32>() {
                         if remaining_int < RATE_LIMIT_SLOW_THRESHOLD {
-                            tracing::info!(
+                            tracing::debug!(
                                 "EODHD rate limit remaining: {remaining_int}, throttling"
                             );
                             sleep(std::time::Duration::from_secs(1)).await;
