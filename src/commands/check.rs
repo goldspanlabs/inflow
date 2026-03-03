@@ -2,14 +2,14 @@
 
 use crate::cache::CacheStore;
 use crate::utils::{
-    anyvalue_to_naive_date, OPTIONS_CRITICAL_COLUMNS, OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS,
-    OPTIONS_EXPECTED_COLUMNS, PRICES_DATE_COLUMN, PRICES_EXPECTED_COLUMNS,
+    OPTIONS_CRITICAL_COLUMNS, OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS, OPTIONS_EXPECTED_COLUMNS,
+    PRICES_DATE_COLUMN, PRICES_EXPECTED_COLUMNS,
 };
 use anyhow::Result;
 use chrono::{Datelike, NaiveDate};
 use console::Style;
 use polars::prelude::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 // ─── Result types ───────────────────────────────────────────────────────────
 
@@ -65,6 +65,10 @@ pub async fn execute(cache: &CacheStore, symbols: &[String]) -> Result<()> {
 
     println!("\nData Quality Report\n");
 
+    // Cache prices DataFrames to avoid reading the same Parquet twice
+    // (once during options gap check, once during prices checks).
+    let mut prices_cache: HashMap<String, DataFrame> = HashMap::new();
+
     for symbol in &options_symbols {
         let opts_path = cache.options_path(symbol)?;
         let prices_path = cache.prices_path(symbol)?;
@@ -75,23 +79,34 @@ pub async fn execute(cache: &CacheStore, symbols: &[String]) -> Result<()> {
         if let Some(options_lf) = options {
             let options_data = collect_blocking(options_lf).await?;
             let prices_data = match prices {
-                Some(lf) => Some(collect_blocking(lf).await?),
+                Some(lf) => {
+                    let df = collect_blocking(lf).await?;
+                    prices_cache.insert(symbol.clone(), df);
+                    prices_cache.get(symbol)
+                }
                 None => None,
             };
             print_section(
                 &format!("Options: {symbol}"),
-                &check_options(&options_data, prices_data.as_ref()),
+                &check_options(&options_data, prices_data),
             );
         }
     }
 
     for symbol in &prices_symbols {
-        let prices_path = cache.prices_path(symbol)?;
-        let prices = cache.read_parquet(&prices_path).await?;
+        // Reuse cached DataFrame if already loaded during options checks
+        let prices_data = if let Some(df) = prices_cache.get(symbol) {
+            Some(df.clone())
+        } else {
+            let prices_path = cache.prices_path(symbol)?;
+            match cache.read_parquet(&prices_path).await? {
+                Some(lf) => Some(collect_blocking(lf).await?),
+                None => None,
+            }
+        };
 
-        if let Some(lf) = prices {
-            let prices_data = collect_blocking(lf).await?;
-            print_section(&format!("Prices: {symbol}"), &check_prices(&prices_data));
+        if let Some(ref df) = prices_data {
+            print_section(&format!("Prices: {symbol}"), &check_prices(df));
         }
     }
 
@@ -297,17 +312,12 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
         }
     }
 
-    // Zero-price checks using lazy API
+    // Zero-price checks using native chunked array iteration (avoids df.clone())
     let mut zero_cols = Vec::new();
     for &col_name in &["bid", "ask", "last"] {
-        if df.column(col_name).is_ok() {
-            if let Ok(result) = df
-                .clone()
-                .lazy()
-                .filter(col(col_name).eq(lit(0.0)))
-                .collect()
-            {
-                let zeros = result.height();
+        if let Ok(c) = df.column(col_name) {
+            if let Ok(ca) = c.f64() {
+                let zeros: usize = ca.into_iter().filter(|v| *v == Some(0.0)).count();
                 if zeros > 0 {
                     zero_cols.push(format!("{col_name}({zeros})"));
                 }
@@ -319,8 +329,8 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
     }
 
     // Delta outlier check: abs(delta) > 1.0 using chunked array
-    if let Ok(col) = df.column("delta") {
-        if let Ok(ca) = col.f64() {
+    if let Ok(c) = df.column("delta") {
+        if let Ok(ca) = c.f64() {
             let outliers: usize = ca
                 .into_iter()
                 .filter(|v| matches!(v, Some(d) if d.abs() > 1.0))
@@ -341,35 +351,40 @@ fn check_options_nulls_outliers(df: &DataFrame) -> CheckResult {
 /// 5. Delta coverage: % of trading dates where both calls and puts span
 ///    from near-ATM (|delta| ≥ 0.8) out to the wings (|delta| ≤ 0.2).
 fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
-    use std::collections::HashMap;
-
     let name = "Delta Coverage";
 
-    let Ok(date_col) = df.column(OPTIONS_DATE_COLUMN) else {
-        return CheckResult::warn(name, "Missing quote_date column".to_string());
+    let Ok(date_col) = df.column(OPTIONS_DATE_COLUMN).and_then(|c| c.date()) else {
+        return CheckResult::warn(name, "Missing or invalid quote_date column".to_string());
     };
-    let Ok(delta_col) = df.column("delta").and_then(|c| c.f64()) else {
+    let Ok(delta_ca) = df.column("delta").and_then(|c| c.f64()) else {
         return CheckResult::warn(name, "Missing or invalid delta column".to_string());
     };
-    let Ok(type_col) = df.column("option_type").and_then(|c| c.str()) else {
+    let Ok(type_ca) = df.column("option_type").and_then(|c| c.str()) else {
         return CheckResult::warn(name, "Missing or invalid option_type column".to_string());
     };
 
-    // Aggregate min/max |delta| per (date, option_type)
-    // Key: (date_index, option_type) → (min_abs_delta, max_abs_delta)
+    // Use the physical Int32Chunked for date iteration (DateChunked is a logical wrapper)
+    let date_phys = date_col.cast(&DataType::Int32).unwrap();
+    let date_ca = date_phys.i32().unwrap();
+
+    // Aggregate min/max |delta| per (date, option_type) using native chunked iteration
+    // Key: (date_i32, is_call) → (min_abs_delta, max_abs_delta)
     let mut group_stats: HashMap<(i32, bool), (f64, f64)> = HashMap::new();
     let mut all_dates: BTreeSet<i32> = BTreeSet::new();
 
-    for i in 0..df.height() {
-        let Ok(AnyValue::Date(date_val)) = date_col.get(i) else {
+    for ((date_opt, delta_opt), type_opt) in date_ca
+        .into_iter()
+        .zip(delta_ca.into_iter())
+        .zip(type_ca.into_iter())
+    {
+        let (Some(date_val), Some(delta_raw), Some(opt_type)): (
+            Option<i32>,
+            Option<f64>,
+            Option<&str>,
+        ) = (date_opt, delta_opt, type_opt) else {
             continue;
         };
-        let Some(delta) = delta_col.get(i).map(f64::abs) else {
-            continue;
-        };
-        let Some(opt_type) = type_col.get(i) else {
-            continue;
-        };
+        let delta = delta_raw.abs();
 
         all_dates.insert(date_val);
         let is_call = opt_type.eq_ignore_ascii_case("call");
@@ -500,16 +515,14 @@ fn check_prices_nulls_outliers(df: &DataFrame) -> CheckResult {
         }
     }
 
-    // Zero or negative prices using lazy API
+    // Zero or negative prices using native chunked array iteration (avoids df.clone())
     for &col_name in &["open", "high", "low", "close", "adjclose"] {
-        if df.column(col_name).is_ok() {
-            if let Ok(result) = df
-                .clone()
-                .lazy()
-                .filter(col(col_name).lt_eq(lit(0.0)))
-                .collect()
-            {
-                let bad = result.height();
+        if let Ok(c) = df.column(col_name) {
+            if let Ok(ca) = c.f64() {
+                let bad: usize = ca
+                    .into_iter()
+                    .filter(|v| matches!(v, Some(x) if *x <= 0.0))
+                    .count();
                 if bad > 0 {
                     issues.push(format!("{bad} zero/negative values in {col_name}"));
                 }
@@ -600,17 +613,26 @@ fn check_prices_gaps(df: &DataFrame) -> CheckResult {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/// Extract all dates from a column into a sorted set.
+/// Extract all unique dates from a column into a sorted set.
+///
+/// Casts the date column to its physical `Int32` representation and iterates
+/// natively, avoiding per-row dynamic dispatch via `col.get(i)`.
 fn extract_date_set(df: &DataFrame, col_name: &str) -> BTreeSet<NaiveDate> {
     let mut dates = BTreeSet::new();
     let Ok(col) = df.column(col_name) else {
         return dates;
     };
-    for i in 0..col.len() {
-        if let Ok(val) = col.get(i) {
-            if let Some(d) = anyvalue_to_naive_date(&val) {
-                dates.insert(d);
-            }
+    let Ok(phys) = col.cast(&DataType::Int32) else {
+        return dates;
+    };
+    let Ok(ca) = phys.i32() else {
+        return dates;
+    };
+    for days in ca.into_iter().flatten() {
+        if let Some(d) =
+            NaiveDate::from_num_days_from_ce_opt(days + crate::utils::EXCEL_DATE_EPOCH_OFFSET)
+        {
+            dates.insert(d);
         }
     }
     dates
