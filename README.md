@@ -128,8 +128,8 @@ inflow download prices SPY
 # Download 5 years of historical data
 inflow download prices SPY --period 5y
 
-# Available periods: 1mo, 3mo, 6mo, 1y, 5y, max
-inflow download prices SPY --period max
+# Available periods: 1mo, 3mo, 6mo, 1y, 5y
+inflow download prices SPY --period 5y
 
 # Download multiple symbols in parallel
 inflow download prices SPY QQQ IWM --concurrency 8
