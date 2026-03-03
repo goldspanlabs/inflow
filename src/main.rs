@@ -64,6 +64,8 @@ async fn main() {
                 Err(e) => Err(InflowError::Other(e)),
             }
         }
+
+        Command::List => commands::execute_list(&config).await,
     };
 
     // Handle result

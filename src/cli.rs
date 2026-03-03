@@ -31,6 +31,9 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         symbols: Vec<String>,
     },
+
+    /// Interactively browse available underlying symbols and trigger a download
+    List,
 }
 
 #[derive(Subcommand, Debug)]
