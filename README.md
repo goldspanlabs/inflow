@@ -169,6 +169,20 @@ QQQ    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 SPY    │  253  │    0.08   │ 2023-03-04 → 2024-03-01
 ```
 
+### Delete Cached Data
+
+Remove cached options, prices, or both for one or more symbols:
+
+```bash
+# Delete cached data for a single symbol (interactive prompt)
+inflow delete SPY
+
+# Delete cached data for multiple symbols
+inflow delete SPY QQQ IWM
+```
+
+For each symbol, you'll be prompted to choose whether to delete options, prices, or both.
+
 ### Check Data Quality
 
 Validate cached data for gaps, duplicates, schema issues, and outliers:
