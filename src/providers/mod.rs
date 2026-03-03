@@ -76,7 +76,9 @@ mod tests {
         };
         let providers = build_providers(&config);
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].name(), "Yahoo");
+        let names: Vec<&str> = providers.iter().map(|p| p.name()).collect();
+        assert!(names.contains(&"Yahoo"));
+        assert!(!names.contains(&"EODHD"));
     }
 
     #[test]

@@ -76,11 +76,12 @@ mod tests {
 
     #[test]
     fn test_config_fields_are_accessible() {
+        let custom_cache = std::env::temp_dir().join("custom-cache");
         let config = Config {
-            data_root: PathBuf::from("/tmp/custom-cache"),
+            data_root: custom_cache.clone(),
             eodhd_api_key: Some("test-key".into()),
         };
-        assert_eq!(config.data_root, PathBuf::from("/tmp/custom-cache"));
+        assert_eq!(config.data_root, custom_cache);
         assert_eq!(config.eodhd_api_key, Some("test-key".into()));
     }
 
