@@ -68,8 +68,14 @@ impl crate::providers::DataProvider for YahooProvider {
         pb.set_message("checking cache…");
 
         // Determine period: use cached resume date if available, otherwise use params
-        let prices_path = cache.prices_path(&symbol_upper)?;
-        let cached_lf = cache.read_parquet(&prices_path).await?;
+        let prices_path = cache.prices_path(&symbol_upper).map_err(|e| {
+            pb.abandon_with_message(format!("cache error: {e}"));
+            e
+        })?;
+        let cached_lf = cache.read_parquet(&prices_path).await.map_err(|e| {
+            pb.abandon_with_message(format!("read error: {e}"));
+            e
+        })?;
 
         // Check for resume opportunity and determine period to fetch
         let fetch_period = if let Some(lf) = cached_lf.clone() {

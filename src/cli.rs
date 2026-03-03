@@ -60,7 +60,7 @@ pub enum DownloadTarget {
         to: Option<NaiveDate>,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 
@@ -70,11 +70,11 @@ pub enum DownloadTarget {
         symbols: Vec<String>,
 
         /// Period for historical data: 1mo, 3mo, 6mo, 1y, 5y
-        #[arg(long, default_value = "5y")]
+        #[arg(long, default_value = DEFAULT_PERIOD)]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 
@@ -92,11 +92,11 @@ pub enum DownloadTarget {
         to: Option<NaiveDate>,
 
         /// Period for historical prices: 1mo, 3mo, 6mo, 1y, 5y
-        #[arg(long, default_value = "5y")]
+        #[arg(long, default_value = DEFAULT_PERIOD)]
         period: String,
 
         /// Number of concurrent downloads (default: 4)
-        #[arg(long, default_value = "4")]
+        #[arg(long, default_value_t = DEFAULT_CONCURRENCY)]
         concurrency: usize,
     },
 }
