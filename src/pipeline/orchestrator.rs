@@ -10,7 +10,7 @@ use crate::pipeline::consumer::run_writer;
 use crate::pipeline::producer::run_symbol_worker;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
-use crate::utils::extract_date_range;
+use crate::utils::{extract_date_range, OPTIONS_DATE_COLUMN, PRICES_DATE_COLUMN};
 use anyhow::Result;
 use indicatif::MultiProgress;
 use std::sync::Arc;
@@ -102,7 +102,7 @@ impl Pipeline {
             Ok(errs) => errs,
             Err(e) => {
                 tracing::error!("Consumer task panicked: {e}");
-                vec![format!("Consumer task panicked: {e}")]
+                anyhow::bail!("Consumer task panicked: {e}");
             }
         };
         if !writer_errors.is_empty() {
@@ -111,13 +111,10 @@ impl Pipeline {
 
         // Now that the consumer has finished writing, populate total_rows and date_range
         for result in &mut results {
-            let date_col = match result.provider.as_str() {
-                "EODHD" => "quote_date",
-                _ => "date",
-            };
-            let path = match result.provider.as_str() {
-                "EODHD" => self.cache.options_path(&result.symbol),
-                _ => self.cache.prices_path(&result.symbol),
+            let (date_col, path) = if result.provider == "EODHD" {
+                (OPTIONS_DATE_COLUMN, self.cache.options_path(&result.symbol))
+            } else {
+                (PRICES_DATE_COLUMN, self.cache.prices_path(&result.symbol))
             };
             if let Ok(path) = path {
                 if let Ok(Some(lf)) = self.cache.read_parquet(&path).await {

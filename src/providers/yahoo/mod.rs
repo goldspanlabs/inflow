@@ -83,7 +83,9 @@ impl crate::providers::DataProvider for YahooProvider {
             match tokio::task::spawn_blocking(move || lf.collect()).await {
                 Ok(Ok(df)) => {
                     // Found cached data - compute resume date and gap
-                    if let Some(resume_date) = compute_resume_date(&df, PRICES_DATE_COLUMN) {
+                    if let Some(resume_date) =
+                        compute_resume_date(&df, PRICES_DATE_COLUMN, None, None)
+                    {
                         let today = Utc::now().date_naive();
                         let days_gap = (today - resume_date).num_days();
 

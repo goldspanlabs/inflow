@@ -80,6 +80,66 @@ fn calculate_strike_range(price: f64) -> (f64, f64) {
     (lower, upper)
 }
 
+/// Build query params for a strike-range-filtered options request.
+fn build_strike_params(
+    symbol: &str,
+    option_type: &str,
+    win_from: NaiveDate,
+    win_to: NaiveDate,
+    strike_from: f64,
+    strike_to: f64,
+) -> Vec<(String, String)> {
+    vec![
+        ("filter[underlying_symbol]".into(), symbol.to_string()),
+        ("filter[type]".into(), option_type.to_string()),
+        (
+            "filter[tradetime_from]".into(),
+            win_from.format("%Y-%m-%d").to_string(),
+        ),
+        (
+            "filter[tradetime_to]".into(),
+            win_to.format("%Y-%m-%d").to_string(),
+        ),
+        ("filter[strike_from]".into(), strike_from.to_string()),
+        ("filter[strike_to]".into(), strike_to.to_string()),
+        ("fields[options-eod]".into(), FIELDS.to_string()),
+        ("page[limit]".into(), PAGE_LIMIT.to_string()),
+        ("sort".into(), "exp_date".to_string()),
+    ]
+}
+
+/// Normalize rows and send as a `WindowChunk`. Returns the number of rows sent.
+async fn send_normalized_chunk(
+    rows: &[HashMap<String, String>],
+    symbol: &str,
+    tx: &mpsc::Sender<WindowChunk>,
+    label: &str,
+) -> usize {
+    if rows.is_empty() {
+        return 0;
+    }
+    match crate::providers::eodhd::parsing::normalize_rows(rows) {
+        Ok(df) => {
+            if let Err(e) = tx
+                .send(WindowChunk::OptionsWindow {
+                    symbol: symbol.to_string(),
+                    df,
+                })
+                .await
+            {
+                tracing::warn!("Failed to send {label} strike range chunk: {e}");
+                0
+            } else {
+                rows.len()
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to normalize {label} strike range: {e}");
+            0
+        }
+    }
+}
+
 /// Pagination helper for EODHD API requests.
 pub struct Paginator {
     pub http: HttpClient,
@@ -432,7 +492,7 @@ impl Paginator {
     /// When offset cap is hit on a minimum window, subdivide by strike price ranges
     /// based on the underlying price to recover missing data without duplicates.
     /// Covers 97% of data range (underlying price × 0.35 to 2.65).
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments)]
     async fn fetch_by_strike_range(
         &self,
         symbol: &str,
@@ -450,93 +510,32 @@ impl Paginator {
              fetching strikes ${strike_lower:.2}-${strike_upper:.2} (±65%)"
         );
 
-        // Calculate midpoint to partition the range
         let strike_mid = f64::midpoint(strike_lower, strike_upper);
 
-        // Fetch lower strike range
-        let params_lower = vec![
-            ("filter[underlying_symbol]".into(), symbol.to_string()),
-            ("filter[type]".into(), option_type.to_string()),
-            (
-                "filter[tradetime_from]".into(),
-                win_from.format("%Y-%m-%d").to_string(),
-            ),
-            (
-                "filter[tradetime_to]".into(),
-                win_to.format("%Y-%m-%d").to_string(),
-            ),
-            ("filter[strike_from]".into(), strike_lower.to_string()),
-            ("filter[strike_to]".into(), strike_mid.to_string()),
-            ("fields[options-eod]".into(), FIELDS.to_string()),
-            ("page[limit]".into(), PAGE_LIMIT.to_string()),
-            ("sort".into(), "exp_date".to_string()),
-        ];
+        // Fetch lower and upper strike ranges
+        let params_lower = build_strike_params(
+            symbol,
+            option_type,
+            win_from,
+            win_to,
+            strike_lower,
+            strike_mid,
+        );
+        let (rows_lower, hit_cap_lower, _) = self.paginate_window(&params_lower).await;
+        rows_fetched += send_normalized_chunk(&rows_lower, symbol, tx, "lower").await;
 
-        let (rows_lower, hit_cap_lower, _err_lower) = self.paginate_window(&params_lower).await;
+        let params_upper = build_strike_params(
+            symbol,
+            option_type,
+            win_from,
+            win_to,
+            strike_mid + 0.01,
+            strike_upper,
+        );
+        let (rows_upper, hit_cap_upper, _) = self.paginate_window(&params_upper).await;
+        rows_fetched += send_normalized_chunk(&rows_upper, symbol, tx, "upper").await;
 
-        if !rows_lower.is_empty() {
-            match crate::providers::eodhd::parsing::normalize_rows(&rows_lower) {
-                Ok(df) => {
-                    if let Err(e) = tx
-                        .send(WindowChunk::OptionsWindow {
-                            symbol: symbol.to_string(),
-                            df,
-                        })
-                        .await
-                    {
-                        tracing::warn!("Failed to send lower strike range chunk: {e}");
-                    } else {
-                        rows_fetched += rows_lower.len();
-                    }
-                }
-                Err(e) => tracing::warn!("Failed to normalize lower strike range: {e}"),
-            }
-        }
-
-        // Fetch upper strike range
-        let params_upper = vec![
-            ("filter[underlying_symbol]".into(), symbol.to_string()),
-            ("filter[type]".into(), option_type.to_string()),
-            (
-                "filter[tradetime_from]".into(),
-                win_from.format("%Y-%m-%d").to_string(),
-            ),
-            (
-                "filter[tradetime_to]".into(),
-                win_to.format("%Y-%m-%d").to_string(),
-            ),
-            (
-                "filter[strike_from]".into(),
-                (strike_mid + 0.01).to_string(),
-            ),
-            ("filter[strike_to]".into(), strike_upper.to_string()),
-            ("fields[options-eod]".into(), FIELDS.to_string()),
-            ("page[limit]".into(), PAGE_LIMIT.to_string()),
-            ("sort".into(), "exp_date".to_string()),
-        ];
-
-        let (rows_upper, hit_cap_upper, _err_upper) = self.paginate_window(&params_upper).await;
-
-        if !rows_upper.is_empty() {
-            match crate::providers::eodhd::parsing::normalize_rows(&rows_upper) {
-                Ok(df) => {
-                    if let Err(e) = tx
-                        .send(WindowChunk::OptionsWindow {
-                            symbol: symbol.to_string(),
-                            df,
-                        })
-                        .await
-                    {
-                        tracing::warn!("Failed to send upper strike range chunk: {e}");
-                    } else {
-                        rows_fetched += rows_upper.len();
-                    }
-                }
-                Err(e) => tracing::warn!("Failed to normalize upper strike range: {e}"),
-            }
-        }
-
-        // If either partition still hits cap, recursively subdivide
+        // Report if either partition still hits cap
         let mut final_error = None;
 
         if hit_cap_lower {

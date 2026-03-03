@@ -90,45 +90,27 @@ fn merge_options_dataframes(
     existing: Option<DataFrame>,
     chunks: Vec<DataFrame>,
 ) -> Result<DataFrame> {
-    if let Some(existing_df) = existing {
-        let mut all_dfs = vec![existing_df.lazy()];
-        for chunk in chunks {
-            all_dfs.push(chunk.lazy());
-        }
+    let all_dfs: Vec<LazyFrame> = existing
+        .into_iter()
+        .chain(chunks)
+        .map(DataFrame::lazy)
+        .collect();
 
-        concat(
-            all_dfs,
-            UnionArgs {
-                rechunk: true,
-                to_supertypes: true,
-                diagonal: true,
-                ..Default::default()
-            },
-        )?
-        .collect()
-        .context("Failed to collect merged dataframe")
-    } else {
-        if chunks.is_empty() {
-            return Ok(DataFrame::empty());
-        }
-
-        let all_dfs: Vec<_> = chunks.into_iter().map(DataFrame::lazy).collect();
-        if all_dfs.is_empty() {
-            return Ok(DataFrame::empty());
-        }
-
-        concat(
-            all_dfs,
-            UnionArgs {
-                rechunk: true,
-                to_supertypes: true,
-                diagonal: true,
-                ..Default::default()
-            },
-        )?
-        .collect()
-        .context("Failed to collect merged dataframe")
+    if all_dfs.is_empty() {
+        return Ok(DataFrame::empty());
     }
+
+    concat(
+        all_dfs,
+        UnionArgs {
+            rechunk: true,
+            to_supertypes: true,
+            diagonal: true,
+            ..Default::default()
+        },
+    )?
+    .collect()
+    .context("Failed to collect merged dataframe")
 }
 
 /// Deduplicate options `DataFrame` on key columns.

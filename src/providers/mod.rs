@@ -46,10 +46,7 @@ pub fn build_providers(config: &crate::Config) -> Vec<Arc<dyn DataProvider>> {
 
     // EODHD provider (if API key is present)
     if let Some(api_key) = &config.eodhd_api_key {
-        providers.push(Arc::new(eodhd::EodhdProvider::new(
-            api_key.clone(),
-            config.eodhd_rate_limit,
-        )));
+        providers.push(Arc::new(eodhd::EodhdProvider::new(api_key.clone())));
     }
 
     providers

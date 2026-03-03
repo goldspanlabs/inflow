@@ -11,9 +11,6 @@ pub struct Config {
 
     /// Optional EODHD API key. If unset, EODHD provider is disabled.
     pub eodhd_api_key: Option<String>,
-
-    /// EODHD rate limit in requests per second (default: 10).
-    pub eodhd_rate_limit: u32,
 }
 
 impl Config {
@@ -23,6 +20,7 @@ impl Config {
     /// 1. `~/.env`
     /// 2. `./.env` (current directory)
     /// 3. Environment variables
+    #[allow(clippy::unnecessary_wraps)]
     pub fn from_env() -> Result<Self, InflowError> {
         // Load .env files
         if let Ok(home) = std::env::var("HOME") {
@@ -44,22 +42,9 @@ impl Config {
             .ok()
             .filter(|k| !k.is_empty());
 
-        // Read EODHD_RATE_LIMIT (default 10 req/sec)
-        let eodhd_rate_limit = std::env::var("EODHD_RATE_LIMIT")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(10);
-
-        if eodhd_rate_limit == 0 {
-            return Err(InflowError::Config(
-                "EODHD_RATE_LIMIT must be > 0".to_string(),
-            ));
-        }
-
         Ok(Self {
             data_root,
             eodhd_api_key,
-            eodhd_rate_limit,
         })
     }
 }

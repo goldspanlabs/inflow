@@ -20,11 +20,5 @@ pub fn execute(config: &Config) {
     };
     println!("  {} {}", style("EODHD_API_KEY:").bold(), api_key_status);
 
-    println!(
-        "  {} {} req/sec",
-        style("EODHD_RATE_LIMIT:").bold(),
-        config.eodhd_rate_limit
-    );
-
     println!();
 }
