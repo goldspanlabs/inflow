@@ -13,6 +13,17 @@ pub const MAX_RETRIES: u32 = 5;
 pub const MIN_REQUEST_INTERVAL_MS: u64 = 100;
 pub const RATE_LIMIT_SLOW_THRESHOLD: u32 = 50;
 
+/// Returns the backoff duration for a given wait time in seconds.
+/// Under `cfg(test)`, returns zero to avoid real sleeps in integration tests.
+#[cfg(not(test))]
+fn backoff_duration(secs: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(secs)
+}
+#[cfg(test)]
+fn backoff_duration(_secs: u64) -> std::time::Duration {
+    std::time::Duration::ZERO
+}
+
 /// HTTP client and rate limiting state for EODHD API requests.
 pub struct HttpClient {
     pub client: Client,
@@ -70,7 +81,7 @@ impl HttpClient {
                         attempt + 1,
                         MAX_RETRIES + 1
                     );
-                    sleep(std::time::Duration::from_secs(wait)).await;
+                    sleep(backoff_duration(wait)).await;
                     continue;
                 }
             };
@@ -90,7 +101,7 @@ impl HttpClient {
                     attempt + 1,
                     MAX_RETRIES + 1
                 );
-                sleep(std::time::Duration::from_secs(wait)).await;
+                sleep(backoff_duration(wait)).await;
                 continue;
             }
 
@@ -105,7 +116,7 @@ impl HttpClient {
                     attempt + 1,
                     MAX_RETRIES + 1
                 );
-                sleep(std::time::Duration::from_secs(wait)).await;
+                sleep(backoff_duration(wait)).await;
                 continue;
             }
 

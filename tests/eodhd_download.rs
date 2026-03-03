@@ -350,7 +350,7 @@ async fn test_eodhd_rate_limit_header() {
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_string(body)
-                .insert_header("X-RateLimit-Remaining", "10"),
+                .insert_header("X-RateLimit-Remaining", "1000"),
         )
         .mount(&server)
         .await;
