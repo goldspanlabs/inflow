@@ -4,48 +4,15 @@ mod common;
 
 use inflow::pipeline::consumer::run_writer;
 use inflow::pipeline::types::WindowChunk;
-use polars::prelude::*;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Helper to create a prices DataFrame for testing.
-fn create_prices_df() -> DataFrame {
-    let columns = vec![
-        Series::new(PlSmallStr::from("open"), vec![100.0, 101.0, 102.0]).into_column(),
-        Series::new(PlSmallStr::from("close"), vec![103.0, 104.0, 105.0]).into_column(),
-    ];
-    DataFrame::new(3, columns).expect("Failed to create DataFrame")
-}
-
-/// Helper to create an options DataFrame for testing.
-fn create_options_df(dates: &[&str], strikes: &[f64]) -> DataFrame {
-    assert_eq!(
-        dates.len(),
-        strikes.len(),
-        "dates and strikes must have same length"
-    );
-
-    let height = dates.len();
-    let expiration = vec!["2024-02-01"; height];
-    let option_type = vec!["C"; height];
-    let expiration_type = vec!["standard"; height];
-
-    let columns = vec![
-        Series::new(PlSmallStr::from("quote_date"), dates.to_vec()).into_column(),
-        Series::new(PlSmallStr::from("expiration"), expiration).into_column(),
-        Series::new(PlSmallStr::from("strike"), strikes.to_vec()).into_column(),
-        Series::new(PlSmallStr::from("option_type"), option_type).into_column(),
-        Series::new(PlSmallStr::from("expiration_type"), expiration_type).into_column(),
-    ];
-    DataFrame::new(height, columns).expect("Failed to create DataFrame")
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_write_prices_creates_file() {
     let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
-    let df = create_prices_df();
+    let df = common::create_prices_df(3);
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
@@ -83,8 +50,8 @@ async fn test_write_options_deduplicates_on_merge() {
     let (tx, rx) = mpsc::channel(10);
 
     // Create two options chunks with duplicate rows
-    let df1 = create_options_df(&["2024-01-01", "2024-01-02"], &[100.0, 100.0]);
-    let df2 = create_options_df(&["2024-01-01", "2024-01-03"], &[100.0, 100.0]);
+    let df1 = common::create_options_df(&["2024-01-01", "2024-01-02"], &[100.0, 100.0], None);
+    let df2 = common::create_options_df(&["2024-01-01", "2024-01-03"], &[100.0, 100.0], None);
 
     // Spawn consumer in separate thread to avoid runtime nesting
     let cache_clone = Arc::clone(&cache);
@@ -127,8 +94,8 @@ async fn test_write_options_merges_with_existing() {
     let (tx, rx) = mpsc::channel(10);
 
     // Create initial data chunks to send through consumer
-    let df1 = create_options_df(&["2024-01-01", "2024-01-02"], &[100.0, 100.0]);
-    let df2 = create_options_df(&["2024-01-03", "2024-01-04"], &[100.0, 100.0]);
+    let df1 = common::create_options_df(&["2024-01-01", "2024-01-02"], &[100.0, 100.0], None);
+    let df2 = common::create_options_df(&["2024-01-03", "2024-01-04"], &[100.0, 100.0], None);
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
@@ -170,8 +137,8 @@ async fn test_write_options_sorts_by_quote_date() {
     let (tx, rx) = mpsc::channel(10);
 
     // Create chunks with out-of-order dates
-    let df1 = create_options_df(&["2024-01-03", "2024-01-01"], &[100.0, 100.0]);
-    let df2 = create_options_df(&["2024-01-02"], &[100.0]);
+    let df1 = common::create_options_df(&["2024-01-03", "2024-01-01"], &[100.0, 100.0], None);
+    let df2 = common::create_options_df(&["2024-01-02"], &[100.0], None);
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
@@ -215,7 +182,7 @@ async fn test_run_writer_returns_empty_errors_on_success() {
     let cache = common::temp_cache();
     let (tx, rx) = mpsc::channel(10);
 
-    let df = create_prices_df();
+    let df = common::create_prices_df(3);
 
     // Spawn consumer
     let cache_clone = Arc::clone(&cache);
