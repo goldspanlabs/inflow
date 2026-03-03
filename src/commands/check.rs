@@ -91,8 +91,24 @@ pub async fn execute(cache: &CacheStore, symbols: &[String]) -> Result<()> {
         if options_set.contains(symbol) {
             let opts_path = cache.options_path(symbol)?;
             if let Some(options_lf) = cache.read_parquet(&opts_path).await? {
-                let options_data = collect_blocking(options_lf).await?;
-                let results = check_options(&options_data, prices_data.as_ref());
+                // Run schema check from LazyFrame metadata — zero I/O
+                let schema_result = check_options_schema_lazy(&options_lf);
+
+                // Project only needed columns before collecting
+                let projected = options_lf.select([
+                    col(OPTIONS_DATE_COLUMN),
+                    col("expiration"),
+                    col("strike"),
+                    col("option_type"),
+                    col("expiration_type"),
+                    col("underlying_symbol"),
+                    col("bid"),
+                    col("ask"),
+                    col("last"),
+                    col("delta"),
+                ]);
+                let options_data = collect_blocking(projected).await?;
+                let results = check_options(&options_data, prices_data.as_ref(), schema_result);
                 if has_issues(&results) {
                     if !has_output {
                         println!("  {symbol}");
@@ -166,11 +182,15 @@ fn print_section(header: &str, results: &[CheckResult]) {
 
 // ─── Options checks ────────────────────────────────────────────────────────
 
-fn check_options(df: &DataFrame, prices_df: Option<&DataFrame>) -> Vec<CheckResult> {
+fn check_options(
+    df: &DataFrame,
+    prices_df: Option<&DataFrame>,
+    schema_result: CheckResult,
+) -> Vec<CheckResult> {
     vec![
         check_options_gaps(df, prices_df),
         check_options_duplicates(df),
-        check_options_schema(df),
+        schema_result,
         check_options_nulls_outliers(df),
         check_options_delta_coverage(df),
     ]
@@ -257,8 +277,13 @@ fn check_options_duplicates(df: &DataFrame) -> CheckResult {
         }
     }
 
+    // Select only the dedup columns before calling unique — ~80% less memory
     let dedup_cols: Vec<String> = OPTIONS_DEDUP_COLS.iter().map(|&s| s.to_string()).collect();
-    match df.unique::<String, String>(Some(&dedup_cols), UniqueKeepStrategy::First, None) {
+    let subset = match df.select(dedup_cols.iter().map(String::as_str)) {
+        Ok(s) => s,
+        Err(e) => return CheckResult::fail(name, format!("Dedup check failed: {e}")),
+    };
+    match subset.unique::<String, String>(None, UniqueKeepStrategy::First, None) {
         Ok(unique_df) => {
             let unique = unique_df.height();
             let dupes = total - unique;
@@ -272,22 +297,25 @@ fn check_options_duplicates(df: &DataFrame) -> CheckResult {
     }
 }
 
-/// 3. Schema validation for options data.
-fn check_options_schema(df: &DataFrame) -> CheckResult {
+/// 3. Schema validation for options data — reads Parquet metadata only, no I/O.
+fn check_options_schema_lazy(lf: &LazyFrame) -> CheckResult {
     let name = "Schema";
+    let schema = match lf.clone().collect_schema() {
+        Ok(s) => s,
+        Err(e) => return CheckResult::fail(name, format!("Could not read schema: {e}")),
+    };
     let mut issues = Vec::new();
 
     for &col_name in OPTIONS_EXPECTED_COLUMNS {
-        if df.column(col_name).is_err() {
+        if schema.get(col_name).is_none() {
             issues.push(format!("missing '{col_name}'"));
         }
     }
 
     // Check quote_date type
-    if let Ok(col) = df.column(OPTIONS_DATE_COLUMN) {
-        match col.dtype() {
-            DataType::Date => {}
-            other => issues.push(format!("{OPTIONS_DATE_COLUMN} is {other}, expected Date")),
+    if let Some(dtype) = schema.get(OPTIONS_DATE_COLUMN) {
+        if *dtype != DataType::Date {
+            issues.push(format!("{OPTIONS_DATE_COLUMN} is {dtype}, expected Date"));
         }
     }
 
@@ -295,15 +323,15 @@ fn check_options_schema(df: &DataFrame) -> CheckResult {
     for &col_name in &[
         "strike", "bid", "ask", "last", "delta", "gamma", "theta", "vega",
     ] {
-        if let Ok(col) = df.column(col_name) {
-            if !col.dtype().is_numeric() {
-                issues.push(format!("'{col_name}' is {}, expected numeric", col.dtype()));
+        if let Some(dtype) = schema.get(col_name) {
+            if !dtype.is_numeric() {
+                issues.push(format!("'{col_name}' is {dtype}, expected numeric"));
             }
         }
     }
 
     if issues.is_empty() {
-        let ncols = df.get_column_names().len();
+        let ncols = schema.len();
         CheckResult::pass(name, format!("Schema valid ({ncols} columns)"))
     } else {
         CheckResult::warn(name, issues.join("; "))
@@ -382,10 +410,11 @@ fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
     let date_phys = date_col.cast(&DataType::Int32).unwrap();
     let date_ca = date_phys.i32().unwrap();
 
-    // Aggregate min/max |delta| per (date, option_type) using native chunked iteration
+    // Aggregate min/max |delta| per (date, option_type) and row counts per date
+    // in a single pass over the data.
     // Key: (date_i32, is_call) → (min_abs_delta, max_abs_delta)
     let mut group_stats: HashMap<(i32, bool), (f64, f64)> = HashMap::new();
-    let mut all_dates: BTreeSet<i32> = BTreeSet::new();
+    let mut day_counts: HashMap<i32, usize> = HashMap::new();
 
     for ((date_opt, delta_opt), type_opt) in date_ca
         .into_iter()
@@ -401,7 +430,7 @@ fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
         };
         let delta = delta_raw.abs();
 
-        all_dates.insert(date_val);
+        *day_counts.entry(date_val).or_insert(0) += 1;
         let is_call = opt_type.eq_ignore_ascii_case("call");
         let key = (date_val, is_call);
 
@@ -418,17 +447,16 @@ fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
             .or_insert((delta, delta));
     }
 
-    let total_dates = all_dates.len();
+    let total_dates = day_counts.len();
     if total_dates == 0 {
         return CheckResult::warn(name, "No trading dates found".to_string());
     }
 
     // A date passes if both call and put groups exist and each has
     // min(|delta|) ≤ 0.2 AND max(|delta|) ≥ 0.8
-    let passing_dates: BTreeSet<i32> = all_dates
-        .iter()
-        .copied()
-        .filter(|&date| {
+    let passing_count = day_counts
+        .keys()
+        .filter(|&&date| {
             let call_ok = group_stats
                 .get(&(date, true))
                 .is_some_and(|&(min_d, max_d)| min_d <= 0.2 && max_d >= 0.8);
@@ -437,17 +465,12 @@ fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
                 .is_some_and(|&(min_d, max_d)| min_d <= 0.2 && max_d >= 0.8);
             call_ok && put_ok
         })
-        .collect();
+        .count();
 
-    let passing_count = passing_dates.len();
     let pct = (passing_count as f64 / total_dates as f64) * 100.0;
 
-    // Compute median strikes per day from the raw date column
+    // Compute median strikes per day from counts accumulated in the single pass
     let median_strikes = {
-        let mut day_counts: HashMap<i32, usize> = HashMap::new();
-        for d in date_ca.into_iter().flatten() {
-            *day_counts.entry(d).or_insert(0) += 1;
-        }
         let mut counts: Vec<usize> = day_counts.into_values().collect();
         counts.sort_unstable();
         if counts.is_empty() {
@@ -633,14 +656,17 @@ fn check_prices_gaps(df: &DataFrame) -> CheckResult {
 
 /// Extract all unique dates from a column into a sorted set.
 ///
-/// Casts the date column to its physical `Int32` representation and iterates
-/// natively, avoiding per-row dynamic dispatch via `col.get(i)`.
+/// Calls `Series::unique()` first to reduce millions of rows to ~500 unique
+/// dates, then iterates only the unique values into a `BTreeSet`.
 fn extract_date_set(df: &DataFrame, col_name: &str) -> BTreeSet<NaiveDate> {
     let mut dates = BTreeSet::new();
     let Ok(col) = df.column(col_name) else {
         return dates;
     };
-    let Ok(phys) = col.cast(&DataType::Int32) else {
+    let Ok(unique_col) = col.unique() else {
+        return dates;
+    };
+    let Ok(phys) = unique_col.cast(&DataType::Int32) else {
         return dates;
     };
     let Ok(ca) = phys.i32() else {
