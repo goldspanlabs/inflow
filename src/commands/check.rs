@@ -442,30 +442,29 @@ fn check_options_delta_coverage(df: &DataFrame) -> CheckResult {
     let passing_count = passing_dates.len();
     let pct = (passing_count as f64 / total_dates as f64) * 100.0;
 
-    if pct >= 80.0 {
-        CheckResult::pass(
-            name,
-            format!("{pct:.1}% of dates have full call+put delta spread (target: 80%)"),
-        )
-    } else {
-        // Collect up to 5 sample failing dates
-        let failing: Vec<String> = all_dates
-            .difference(&passing_dates)
-            .take(5)
-            .filter_map(|&d| {
-                NaiveDate::from_num_days_from_ce_opt(d + 719_163).map(|nd| nd.to_string())
-            })
-            .collect();
-        let sample = if failing.is_empty() {
-            String::new()
+    // Compute median strikes per day from the raw date column
+    let median_strikes = {
+        let mut day_counts: HashMap<i32, usize> = HashMap::new();
+        for d in date_ca.into_iter().flatten() {
+            *day_counts.entry(d).or_insert(0) += 1;
+        }
+        let mut counts: Vec<usize> = day_counts.into_values().collect();
+        counts.sort_unstable();
+        if counts.is_empty() {
+            0
         } else {
-            format!("; sample failing: {}", failing.join(", "))
-        };
+            counts[counts.len() / 2]
+        }
+    };
 
-        CheckResult::warn(
-            name,
-            format!("{pct:.1}% of dates have full call+put delta spread (target: 80%){sample}"),
-        )
+    let msg = format!(
+        "{pct:.1}% of dates have delta 0.2\u{2013}0.8 coverage; ~{median_strikes} strikes/day"
+    );
+
+    if pct >= 80.0 {
+        CheckResult::pass(name, msg)
+    } else {
+        CheckResult::warn(name, msg)
     }
 }
 
