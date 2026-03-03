@@ -55,6 +55,19 @@ async fn fetch_underlying_symbols(api_key: &str) -> Result<Vec<String>, InflowEr
     Ok(symbols)
 }
 
+/// Filter symbols by an optional case-insensitive query.
+fn filter_symbols<'a>(symbols: &'a [String], query: Option<&str>) -> Vec<&'a String> {
+    if let Some(q) = query {
+        let q_upper = q.to_uppercase();
+        symbols
+            .iter()
+            .filter(|s| s.to_uppercase().contains(&q_upper))
+            .collect()
+    } else {
+        symbols.iter().collect()
+    }
+}
+
 /// Execute the `list` command.
 ///
 /// Fetches available underlying symbols from the EODHD marketplace, presents an
@@ -81,15 +94,7 @@ pub async fn execute(config: &Config, search: Option<&str>) -> Result<(), Inflow
 
     // --- symbol selection loop (allows re-searching) ---
     let selected_symbols: Vec<String> = loop {
-        let filtered: Vec<&String> = if let Some(ref query) = current_filter {
-            let query_upper = query.to_uppercase();
-            all_symbols
-                .iter()
-                .filter(|s| s.to_uppercase().contains(&query_upper))
-                .collect()
-        } else {
-            all_symbols.iter().collect()
-        };
+        let filtered = filter_symbols(&all_symbols, current_filter.as_deref());
 
         if filtered.is_empty() {
             println!("No symbols matched the search filter.");
@@ -160,4 +165,39 @@ pub async fn execute(config: &Config, search: Option<&str>) -> Result<(), Inflow
     };
 
     super::download::execute(config, target).await.map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn symbols() -> Vec<String> {
+        vec![
+            "AAPL".to_string(),
+            "MSFT".to_string(),
+            "GOOGL".to_string(),
+            "AMZN".to_string(),
+        ]
+    }
+
+    #[test]
+    fn filter_no_query_returns_all() {
+        let syms = symbols();
+        let result = filter_symbols(&syms, None);
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn filter_case_insensitive() {
+        let syms = symbols();
+        let result = filter_symbols(&syms, Some("aapl"));
+        assert_eq!(result, vec![&"AAPL".to_string()]);
+    }
+
+    #[test]
+    fn filter_partial_match() {
+        let syms = symbols();
+        let result = filter_symbols(&syms, Some("A"));
+        assert_eq!(result.len(), 2); // AAPL, AMZN
+    }
 }

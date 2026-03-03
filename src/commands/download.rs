@@ -179,3 +179,46 @@ fn print_results(results: &[DownloadResult]) {
     let table = download_results_table(&table_data);
     println!("\n{table}\n");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn validate_both_none() {
+        assert!(validate_date_range(None, None).is_ok());
+    }
+
+    #[test]
+    fn validate_from_only() {
+        let from = NaiveDate::from_ymd_opt(2024, 1, 1);
+        assert!(validate_date_range(from, None).is_ok());
+    }
+
+    #[test]
+    fn validate_to_without_from() {
+        let to = NaiveDate::from_ymd_opt(2024, 6, 1);
+        assert!(validate_date_range(None, to).is_err());
+    }
+
+    #[test]
+    fn validate_from_before_to() {
+        let from = NaiveDate::from_ymd_opt(2024, 1, 1);
+        let to = NaiveDate::from_ymd_opt(2024, 6, 1);
+        assert!(validate_date_range(from, to).is_ok());
+    }
+
+    #[test]
+    fn validate_from_after_to() {
+        let from = NaiveDate::from_ymd_opt(2024, 6, 1);
+        let to = NaiveDate::from_ymd_opt(2024, 1, 1);
+        assert!(validate_date_range(from, to).is_err());
+    }
+
+    #[test]
+    fn validate_from_equals_to() {
+        let d = NaiveDate::from_ymd_opt(2024, 3, 15);
+        assert!(validate_date_range(d, d).is_ok());
+    }
+}
