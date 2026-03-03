@@ -211,38 +211,6 @@ inflow check --symbols SPY QQQ
     └── ...
 ```
 
-## Performance Tips
-
-1. **Increase concurrency** for multiple symbols:
-   ```bash
-   inflow download all SPY QQQ IWM --concurrency 16
-   ```
-
-2. **Start with smaller date ranges** to test configuration:
-   ```bash
-   inflow download options SPY --from 2024-01-01
-   ```
-
-3. **Monitor rate limits** — if you see 429 errors, reduce concurrency or EODHD_RATE_LIMIT
-
-4. **Use `inflow status`** to verify cache before analysis
-
-## Troubleshooting
-
-### "EODHD_API_KEY is invalid or expired"
-- Check your API key at https://eodhd.com
-- Ensure it's set in `~/.env` or exported in your shell: `export EODHD_API_KEY=your_key`
-- Verify with `inflow config`
-
-### "No data returned for {symbol}"
-- Symbol may not exist on the provider
-- Try a different period (e.g., `--period 1mo`)
-- Check that the symbol is valid
-
-### Cache files not updating
-- Run `inflow status` to check current cached data
-- Ensure `DATA_ROOT` directory is writable
-- Try downloading a single symbol first: `inflow download prices SPY`
 
 ## Integration with optopy-mcp
 
