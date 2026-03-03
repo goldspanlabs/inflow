@@ -8,11 +8,13 @@ use inflow::providers::eodhd::pagination::Paginator;
 use inflow::providers::eodhd::EodhdProvider;
 use inflow::providers::DataProvider;
 
+use std::sync::Arc;
+
 use indicatif::MultiProgress;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 /// Collect all `WindowChunk`s from a receiver until it closes.
 async fn collect_chunks(mut rx: mpsc::Receiver<WindowChunk>) -> Vec<WindowChunk> {
@@ -274,4 +276,108 @@ async fn test_eodhd_resume_skips_cached() {
         total > 0,
         "resume download should still fetch new rows from resume date"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_eodhd_retry_on_500() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let server = MockServer::start().await;
+
+    // Track request count to return 500 on first two attempts, 200 on third
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let body = include_str!("fixtures/eodhd_compact.json").to_string();
+
+    let call_count_for_responder = call_count.clone();
+    let body_for_responder = body.clone();
+
+    Mock::given(method("GET"))
+        .and(path("/options/eod"))
+        .respond_with(move |_req: &Request| {
+            let n = call_count_for_responder.fetch_add(1, Ordering::SeqCst);
+            if n < 2 {
+                ResponseTemplate::new(500).set_body_string(r#"{"error": "internal"}"#)
+            } else {
+                ResponseTemplate::new(200).set_body_string(&body_for_responder)
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let paginator = Paginator::with_base_url("test-key".into(), server.uri());
+    let provider = EodhdProvider::with_paginator(paginator);
+
+    let cache = common::temp_cache();
+    let (tx, rx) = mpsc::channel(64);
+    let mp = MultiProgress::new();
+    let shutdown = CancellationToken::new();
+
+    let params = DownloadParams {
+        period: "1y".into(),
+        from_date: Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 15).unwrap()),
+        to_date: Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 15).unwrap()),
+    };
+
+    let result_handle = tokio::spawn(async move {
+        provider
+            .download("SPY", &params, &cache, tx, shutdown, &mp)
+            .await
+    });
+
+    let _chunks = collect_chunks(rx).await;
+    let result = result_handle.await.unwrap().unwrap();
+
+    // After retrying past the 500s, should eventually get data
+    assert!(result.is_success(), "should succeed after retries");
+
+    // Should have made more than 2 requests (retries)
+    let total_calls = call_count.load(Ordering::SeqCst);
+    assert!(
+        total_calls > 2,
+        "should have retried, total calls: {total_calls}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_eodhd_rate_limit_header() {
+    let server = MockServer::start().await;
+
+    let body = include_str!("fixtures/eodhd_compact.json");
+
+    // Respond with X-RateLimit-Remaining header
+    Mock::given(method("GET"))
+        .and(path("/options/eod"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(body)
+                .insert_header("X-RateLimit-Remaining", "1000"),
+        )
+        .mount(&server)
+        .await;
+
+    let paginator = Paginator::with_base_url("test-key".into(), server.uri());
+    let provider = EodhdProvider::with_paginator(paginator);
+
+    let cache = common::temp_cache();
+    let (tx, rx) = mpsc::channel(64);
+    let mp = MultiProgress::new();
+    let shutdown = CancellationToken::new();
+
+    let params = DownloadParams {
+        period: "1y".into(),
+        from_date: Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 15).unwrap()),
+        to_date: Some(chrono::NaiveDate::from_ymd_opt(2024, 3, 15).unwrap()),
+    };
+
+    let result_handle = tokio::spawn(async move {
+        provider
+            .download("SPY", &params, &cache, tx, shutdown, &mp)
+            .await
+    });
+
+    let _chunks = collect_chunks(rx).await;
+    let result = result_handle.await.unwrap().unwrap();
+
+    assert!(result.is_success(), "should succeed with rate limit header");
+    assert!(result.new_rows > 0, "should have fetched rows");
 }

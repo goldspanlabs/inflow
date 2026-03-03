@@ -59,3 +59,49 @@ fn default_cache_dir() -> PathBuf {
     }
     PathBuf::from(expanded.as_ref())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_cache_dir_contains_optopsy() {
+        let path = default_cache_dir();
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("optopsy") && path_str.contains("cache"),
+            "default path should contain optopsy/cache, got: {path_str}"
+        );
+    }
+
+    #[test]
+    fn test_config_fields_are_accessible() {
+        let custom_cache = std::env::temp_dir().join("custom-cache");
+        let config = Config {
+            data_root: custom_cache.clone(),
+            eodhd_api_key: Some("test-key".into()),
+        };
+        assert_eq!(config.data_root, custom_cache);
+        assert_eq!(config.eodhd_api_key, Some("test-key".into()));
+    }
+
+    #[test]
+    fn test_config_without_api_key() {
+        let config = Config {
+            data_root: default_cache_dir(),
+            eodhd_api_key: None,
+        };
+        assert!(config.eodhd_api_key.is_none());
+    }
+
+    #[test]
+    fn test_empty_api_key_filter_logic() {
+        // Validate the filter logic used in from_env():
+        // .filter(|k| !k.is_empty()) should turn "" into None
+        let empty: Option<String> = Some(String::new()).filter(|k| !k.is_empty());
+        assert!(empty.is_none(), "empty string should be filtered to None");
+
+        let present: Option<String> = Some("key".to_string()).filter(|k| !k.is_empty());
+        assert_eq!(present, Some("key".into()));
+    }
+}

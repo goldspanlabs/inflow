@@ -13,6 +13,20 @@ pub const MAX_RETRIES: u32 = 5;
 pub const MIN_REQUEST_INTERVAL_MS: u64 = 100;
 pub const RATE_LIMIT_SLOW_THRESHOLD: u32 = 50;
 
+/// Returns the backoff duration for a given wait time in seconds.
+///
+/// In normal builds, returns a real duration. When the `test-fast-backoff`
+/// feature is enabled (or in unit tests via `cfg(test)`), returns zero
+/// to avoid real sleeps in tests.
+#[cfg(not(any(test, feature = "test-fast-backoff")))]
+fn backoff_duration(secs: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(secs)
+}
+#[cfg(any(test, feature = "test-fast-backoff"))]
+fn backoff_duration(_secs: u64) -> std::time::Duration {
+    std::time::Duration::ZERO
+}
+
 /// HTTP client and rate limiting state for EODHD API requests.
 pub struct HttpClient {
     pub client: Client,
@@ -70,7 +84,7 @@ impl HttpClient {
                         attempt + 1,
                         MAX_RETRIES + 1
                     );
-                    sleep(std::time::Duration::from_secs(wait)).await;
+                    sleep(backoff_duration(wait)).await;
                     continue;
                 }
             };
@@ -90,7 +104,7 @@ impl HttpClient {
                     attempt + 1,
                     MAX_RETRIES + 1
                 );
-                sleep(std::time::Duration::from_secs(wait)).await;
+                sleep(backoff_duration(wait)).await;
                 continue;
             }
 
@@ -105,7 +119,7 @@ impl HttpClient {
                     attempt + 1,
                     MAX_RETRIES + 1
                 );
-                sleep(std::time::Duration::from_secs(wait)).await;
+                sleep(backoff_duration(wait)).await;
                 continue;
             }
 
@@ -138,6 +152,51 @@ impl HttpClient {
                 "EODHD server error ({s}). The API may be temporarily unavailable."
             )),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_response_401() {
+        let msg = HttpClient::check_response(401).unwrap();
+        assert!(msg.contains("invalid or expired"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_403() {
+        let msg = HttpClient::check_response(403).unwrap();
+        assert!(msg.contains("access denied"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_429() {
+        let msg = HttpClient::check_response(429).unwrap();
+        assert!(msg.contains("rate limit"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_5xx() {
+        for code in [500, 503] {
+            let msg = HttpClient::check_response(code).unwrap();
+            assert!(msg.contains("server error"), "got for {code}: {msg}");
+            assert!(
+                msg.contains(&code.to_string()),
+                "should include status code"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_response_success() {
+        for code in [200, 204, 404, 422] {
+            assert!(
+                HttpClient::check_response(code).is_none(),
+                "{code} should return None"
+            );
         }
     }
 }

@@ -603,4 +603,43 @@ mod tests {
         let last = windows.last().unwrap();
         assert_eq!(last.0, start);
     }
+
+    #[test]
+    fn test_calculate_strike_range() {
+        let (lower, upper) = calculate_strike_range(500.0);
+        // 500 * 0.35 = 175, 500 * 2.65 = 1325 (allowing for small FP rounding error)
+        let tol = 1e-9;
+        assert!(
+            (lower - 175.0).abs() < tol,
+            "lower should be 175, got {lower}"
+        );
+        assert!(
+            (upper - 1325.0).abs() < tol,
+            "upper should be 1325, got {upper}"
+        );
+    }
+
+    #[test]
+    fn test_build_strike_params_count_and_content() {
+        let from = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        let to = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        let params = build_strike_params("SPY", "call", from, to, 175.0, 1325.0);
+
+        assert_eq!(params.len(), 9, "should have 9 params");
+
+        // Check key params are present
+        let map: std::collections::HashMap<&str, &str> = params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        assert_eq!(map["filter[underlying_symbol]"], "SPY");
+        assert_eq!(map["filter[type]"], "call");
+        assert_eq!(map["filter[tradetime_from]"], "2024-03-15");
+        assert_eq!(map["filter[tradetime_to]"], "2024-03-15");
+        assert_eq!(map["filter[strike_from]"], "175");
+        assert_eq!(map["filter[strike_to]"], "1325");
+        assert_eq!(map["page[limit]"], PAGE_LIMIT.to_string());
+        assert_eq!(map["sort"], "exp_date");
+    }
 }
