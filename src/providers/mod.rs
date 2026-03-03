@@ -63,3 +63,67 @@ pub fn filter_providers_by_category(
         .cloned()
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_providers_without_api_key() {
+        let config = crate::Config {
+            data_root: std::path::PathBuf::from("/tmp/test"),
+            eodhd_api_key: None,
+        };
+        let providers = build_providers(&config);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].name(), "Yahoo");
+    }
+
+    #[test]
+    fn test_build_providers_with_api_key() {
+        let config = crate::Config {
+            data_root: std::path::PathBuf::from("/tmp/test"),
+            eodhd_api_key: Some("test-key".into()),
+        };
+        let providers = build_providers(&config);
+        assert_eq!(providers.len(), 2);
+        let names: Vec<&str> = providers.iter().map(|p| p.name()).collect();
+        assert!(names.contains(&"Yahoo"));
+        assert!(names.contains(&"EODHD"));
+    }
+
+    #[test]
+    fn test_filter_providers_by_options() {
+        let config = crate::Config {
+            data_root: std::path::PathBuf::from("/tmp/test"),
+            eodhd_api_key: Some("test-key".into()),
+        };
+        let providers = build_providers(&config);
+        let filtered = filter_providers_by_category(&providers, "options");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name(), "EODHD");
+    }
+
+    #[test]
+    fn test_filter_providers_by_prices() {
+        let config = crate::Config {
+            data_root: std::path::PathBuf::from("/tmp/test"),
+            eodhd_api_key: Some("test-key".into()),
+        };
+        let providers = build_providers(&config);
+        let filtered = filter_providers_by_category(&providers, "prices");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name(), "Yahoo");
+    }
+
+    #[test]
+    fn test_filter_providers_unknown_category() {
+        let config = crate::Config {
+            data_root: std::path::PathBuf::from("/tmp/test"),
+            eodhd_api_key: Some("test-key".into()),
+        };
+        let providers = build_providers(&config);
+        let filtered = filter_providers_by_category(&providers, "crypto");
+        assert!(filtered.is_empty());
+    }
+}

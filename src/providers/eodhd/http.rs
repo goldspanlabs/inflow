@@ -141,3 +141,48 @@ impl HttpClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_response_401() {
+        let msg = HttpClient::check_response(401).unwrap();
+        assert!(msg.contains("invalid or expired"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_403() {
+        let msg = HttpClient::check_response(403).unwrap();
+        assert!(msg.contains("access denied"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_429() {
+        let msg = HttpClient::check_response(429).unwrap();
+        assert!(msg.contains("rate limit"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_check_response_5xx() {
+        for code in [500, 503] {
+            let msg = HttpClient::check_response(code).unwrap();
+            assert!(msg.contains("server error"), "got for {code}: {msg}");
+            assert!(
+                msg.contains(&code.to_string()),
+                "should include status code"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_response_success() {
+        for code in [200, 204, 404, 422] {
+            assert!(
+                HttpClient::check_response(code).is_none(),
+                "{code} should return None"
+            );
+        }
+    }
+}

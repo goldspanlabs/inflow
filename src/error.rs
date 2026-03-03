@@ -27,3 +27,26 @@ impl InflowError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_error_exit_code() {
+        let err = InflowError::Config("bad config".into());
+        assert_eq!(err.exit_code(), 2);
+    }
+
+    #[test]
+    fn test_partial_failure_exit_code() {
+        let err = InflowError::PartialFailure("some failed".into());
+        assert_eq!(err.exit_code(), 1);
+    }
+
+    #[test]
+    fn test_other_error_exit_code() {
+        let err = InflowError::Other(anyhow::anyhow!("something went wrong"));
+        assert_eq!(err.exit_code(), 1);
+    }
+}
