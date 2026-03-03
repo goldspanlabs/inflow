@@ -65,3 +65,38 @@ async fn test_scan_file_missing_file() {
     .await;
     assert!(result.is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_scan_file_invalid_parquet() {
+    // Write garbage bytes to a file and verify scan handles it gracefully
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.parquet");
+    tokio::fs::write(&path, b"not a real parquet file")
+        .await
+        .unwrap();
+
+    let info = scan_file(&path, "date").await.unwrap();
+    // Should return 0 rows (logged warning, not a panic)
+    assert_eq!(info.row_count, 0);
+    assert!(info.date_min.is_none());
+    assert!(info.date_max.is_none());
+    assert!(info.size_bytes > 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_scan_file_no_date_column() {
+    let cache = common::temp_cache();
+
+    // Write a parquet with no date columns at all
+    let val_col = Series::new(PlSmallStr::from("value"), &[1.0, 2.0, 3.0]).into_column();
+    let mut df = DataFrame::new(3, vec![val_col]).unwrap();
+
+    let path = cache.options_path("NODATE").unwrap();
+    cache.atomic_write(&path, &mut df).await.unwrap();
+
+    let info = scan_file(&path, "quote_date").await.unwrap();
+
+    assert_eq!(info.row_count, 3);
+    assert!(info.date_min.is_none());
+    assert!(info.date_max.is_none());
+}

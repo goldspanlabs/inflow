@@ -51,17 +51,14 @@ pub fn compute_resume_date(
     Some(candidate)
 }
 
+/// Convert a Polars physical date `i32` to a `NaiveDate`.
+fn phys_to_date(di: i32) -> Option<NaiveDate> {
+    NaiveDate::from_num_days_from_ce_opt(di + EXCEL_DATE_EPOCH_OFFSET)
+}
+
 /// Find the maximum date from physical date values (no filtering).
 fn find_max_date(date_phys: &ChunkedArray<Int32Type>) -> Option<NaiveDate> {
-    let mut max_date: Option<NaiveDate> = None;
-    for di in date_phys.iter().flatten() {
-        if let Some(date) = NaiveDate::from_num_days_from_ce_opt(di + EXCEL_DATE_EPOCH_OFFSET) {
-            if max_date.is_none() || date > max_date.unwrap() {
-                max_date = Some(date);
-            }
-        }
-    }
-    max_date
+    date_phys.iter().flatten().filter_map(phys_to_date).max()
 }
 
 /// Find the maximum date from physical date values, filtered by a string column.
@@ -78,24 +75,20 @@ fn find_max_date_filtered(
     let col_str = col.str().ok()?;
     let filter_char = filter_val.chars().next()?.to_lowercase().to_string();
 
-    let mut max_date: Option<NaiveDate> = None;
-
-    for (opt_val, date_val) in col_str.iter().zip(date_phys.iter()) {
-        if let (Some(val), Some(di)) = (opt_val, date_val) {
-            let val_char = val.chars().next().map(|c| c.to_lowercase().to_string());
-            if val_char.as_deref() == Some(&filter_char) {
-                if let Some(date) =
-                    NaiveDate::from_num_days_from_ce_opt(di + EXCEL_DATE_EPOCH_OFFSET)
-                {
-                    if max_date.is_none() || date > max_date.unwrap() {
-                        max_date = Some(date);
-                    }
-                }
+    col_str
+        .iter()
+        .zip(date_phys.iter())
+        .filter_map(|(opt_val, date_val)| {
+            let val = opt_val?;
+            let di = date_val?;
+            let val_char = val.chars().next()?.to_lowercase().to_string();
+            if val_char == filter_char {
+                phys_to_date(di)
+            } else {
+                None
             }
-        }
-    }
-
-    max_date
+        })
+        .max()
 }
 
 /// Find the first trading day >= `candidate` in a prices `DataFrame`.
@@ -107,17 +100,11 @@ fn find_next_trading_day(prices_df: Option<&DataFrame>, candidate: NaiveDate) ->
     let price_dates = price_date_col.date().ok()?;
     let price_dates_phys = &price_dates.phys;
 
-    for d_i32 in price_dates_phys.iter().flatten() {
-        if let Some(trading_date) =
-            NaiveDate::from_num_days_from_ce_opt(d_i32 + EXCEL_DATE_EPOCH_OFFSET)
-        {
-            if trading_date >= candidate {
-                return Some(trading_date);
-            }
-        }
-    }
-
-    None
+    price_dates_phys
+        .iter()
+        .flatten()
+        .filter_map(phys_to_date)
+        .find(|&d| d >= candidate)
 }
 
 #[cfg(test)]
@@ -198,5 +185,26 @@ mod tests {
         // Should skip Saturday and return Monday
         let result = compute_resume_date(&df, "quote_date", None, Some(&prices_df));
         assert_eq!(result, Some(mon));
+    }
+
+    #[test]
+    fn test_phys_to_date_roundtrip() {
+        let date = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
+        let phys = date.num_days_from_ce() - EXCEL_DATE_EPOCH_OFFSET;
+        assert_eq!(phys_to_date(phys), Some(date));
+    }
+
+    #[test]
+    fn test_find_max_date_unsorted() {
+        // Verify .max() works correctly on unsorted data
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 1, 20).unwrap(); // max
+        let d3 = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+
+        let col = date_series("d", &[d1, d2, d3]).into_column();
+        let df = DataFrame::new(3, vec![col]).unwrap();
+        let date_phys = df.column("d").unwrap().date().unwrap().phys.clone();
+
+        assert_eq!(find_max_date(&date_phys), Some(d2));
     }
 }

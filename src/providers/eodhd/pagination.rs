@@ -2,7 +2,7 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::WindowChunk;
-use crate::utils::{parse_compact_rows, parse_standard_rows};
+use crate::utils::{collect_blocking, parse_compact_rows, parse_standard_rows};
 use chrono::{Duration, NaiveDate, Utc};
 use indicatif::ProgressBar;
 use std::collections::HashMap;
@@ -44,7 +44,7 @@ async fn get_cached_price(
         return Ok(None);
     };
 
-    let df = tokio::task::spawn_blocking(move || lf.collect()).await??;
+    let df = collect_blocking(lf).await?;
 
     // Filter to the requested date
     let date_col = df.column("date")?;
@@ -143,6 +143,7 @@ async fn send_normalized_chunk(
 /// Pagination helper for EODHD API requests.
 pub struct Paginator {
     pub http: HttpClient,
+    base_url: String,
 }
 
 impl Paginator {
@@ -150,6 +151,17 @@ impl Paginator {
     pub fn new(api_key: String) -> Self {
         Self {
             http: HttpClient::new(api_key),
+            base_url: BASE_URL.to_string(),
+        }
+    }
+
+    /// Create a paginator with a custom base URL (for testing).
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn with_base_url(api_key: String, base_url: String) -> Self {
+        Self {
+            http: HttpClient::new(api_key),
+            base_url,
         }
     }
 
@@ -174,7 +186,7 @@ impl Paginator {
         base_params: &[(String, String)],
     ) -> (Vec<HashMap<String, String>>, bool, Option<String>) {
         let mut rows: Vec<HashMap<String, String>> = Vec::new();
-        let mut url = format!("{BASE_URL}/options/eod");
+        let mut url = format!("{}/options/eod", self.base_url);
         let mut offset: u32 = 0;
         let mut hit_cap = false;
         let mut use_base_params = true;

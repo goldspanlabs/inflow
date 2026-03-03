@@ -2,7 +2,7 @@
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::WindowChunk;
-use crate::utils::{OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS};
+use crate::utils::{collect_blocking, OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS};
 use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::collections::HashMap;
@@ -58,14 +58,9 @@ async fn write_options(cache: &CacheStore, symbol: &str, chunks: Vec<DataFrame>)
     let path = cache.options_path(symbol)?;
 
     // Read existing cache
-    let cached = cache.read_parquet(&path).await?;
-    let existing_df = if let Some(lf) = cached {
-        tokio::task::spawn_blocking(move || lf.collect().ok())
-            .await
-            .ok()
-            .flatten()
-    } else {
-        None
+    let existing_df = match cache.read_parquet(&path).await? {
+        Some(lf) => collect_blocking(lf).await.ok(),
+        None => None,
     };
 
     // Merge, deduplicate, and sort (all blocking Polars work)

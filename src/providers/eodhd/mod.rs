@@ -10,12 +10,12 @@ pub mod types;
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
-use crate::utils::{compute_resume_date, OPTIONS_DATE_COLUMN};
+use crate::utils::{collect_blocking, compute_resume_date, OPTIONS_DATE_COLUMN};
 use anyhow::Result;
 use async_trait::async_trait;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use pagination::Paginator;
-use polars::prelude::*;
+use polars::prelude::DataFrame;
 use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,10 +23,7 @@ use tokio_util::sync::CancellationToken;
 /// Read a cached Parquet file and collect it into a `DataFrame`.
 async fn collect_cached(cache: &CacheStore, path: &std::path::Path) -> Option<DataFrame> {
     let lf = cache.read_parquet(path).await.ok()??;
-    tokio::task::spawn_blocking(move || lf.collect().ok())
-        .await
-        .ok()
-        .flatten()
+    collect_blocking(lf).await.ok()
 }
 
 /// EODHD options data provider.
@@ -40,6 +37,13 @@ impl EodhdProvider {
         Self {
             paginator: Paginator::new(api_key),
         }
+    }
+
+    /// Create a provider with a custom paginator (for testing).
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn with_paginator(paginator: Paginator) -> Self {
+        Self { paginator }
     }
 }
 
@@ -78,8 +82,8 @@ impl crate::providers::DataProvider for EodhdProvider {
         let (cached_df, prices_df) = if explicit_range {
             (None, None)
         } else {
-            let cd = collect_cached(cache, &cache.options_path(&symbol).unwrap_or_default()).await;
-            let pd = collect_cached(cache, &cache.prices_path(&symbol).unwrap_or_default()).await;
+            let cd = collect_cached(cache, &cache.options_path(&symbol)?).await;
+            let pd = collect_cached(cache, &cache.prices_path(&symbol)?).await;
             (cd, pd)
         };
 

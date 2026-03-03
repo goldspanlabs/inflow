@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "fields": [
+      "underlying_symbol", "type", "exp_date", "expiration_type", "tradetime",
+      "strike", "bid", "ask", "last", "open", "high", "low",
+      "volume", "open_interest",
+      "delta", "gamma", "theta", "vega", "rho", "volatility",
+      "midpoint", "moneyness", "theoretical", "dte"
+    ]
+  },
+  "data": [
+    ["SPY", "Call", "2024-06-21", "regular", "2024-03-15",
+     "500.0", "5.20", "5.40", "5.30", "5.10", "5.50", "5.00",
+     "1234", "5678",
+     "0.45", "0.02", "-0.05", "0.30", "0.10", "0.25",
+     "5.30", "1.02", "5.35", "98"],
+    ["SPY", "Call", "2024-06-21", "regular", "2024-03-15",
+     "505.0", "3.10", "3.30", "3.20", "3.00", "3.40", "2.90",
+     "987", "4321",
+     "0.35", "0.018", "-0.04", "0.28", "0.09", "0.22",
+     "3.20", "0.98", "3.25", "98"]
+  ],
+  "links": {
+    "next": "{{NEXT_URL}}"
+  }
+}

@@ -1,12 +1,21 @@
 //! HTTP client for Yahoo Finance API.
 
 use anyhow::Context;
+use async_trait::async_trait;
 use yahoo_finance_api as yahoo;
+
+/// Trait for fetching quotes, enabling mock injection in tests.
+#[async_trait]
+pub trait QuoteFetcher: Send + Sync {
+    /// Fetch quotes for a symbol with the given period string.
+    async fn fetch_quotes(&self, symbol: &str, period: &str) -> anyhow::Result<Vec<yahoo::Quote>>;
+}
 
 /// HTTP client wrapper for Yahoo Finance API.
 pub struct YahooHttpClient;
 
-impl YahooHttpClient {
+#[async_trait]
+impl QuoteFetcher for YahooHttpClient {
     /// Fetch quotes from Yahoo Finance API by period string.
     ///
     /// Uses period-based fetching (e.g., "5y", "1y", "3mo").
@@ -21,7 +30,7 @@ impl YahooHttpClient {
     /// - Gap >= 365 days → fetch "5y"  (~1256 trading days)
     ///
     /// This achieves 95% efficiency improvement vs always fetching full period.
-    pub async fn fetch_quotes(symbol: &str, period: &str) -> anyhow::Result<Vec<yahoo::Quote>> {
+    async fn fetch_quotes(&self, symbol: &str, period: &str) -> anyhow::Result<Vec<yahoo::Quote>> {
         let provider =
             yahoo::YahooConnector::new().context("Failed to create Yahoo Finance connector")?;
         let resp = provider

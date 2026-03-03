@@ -37,51 +37,54 @@ pub async fn scan_file(path: &Path, date_col: &str) -> Result<CacheFileInfo> {
     let date_col_owned = date_col.to_string();
 
     let (row_count, date_min, date_max) = tokio::task::spawn_blocking(move || {
-        let lf = LazyFrame::scan_parquet(
+        let lf = match LazyFrame::scan_parquet(
             path_owned.to_string_lossy().as_ref().into(),
             ScanArgsParquet::default(),
-        )
-        .ok();
-
-        let Some(lf) = lf else {
-            return (0, None, None);
+        ) {
+            Ok(lf) => lf,
+            Err(e) => {
+                tracing::warn!("Failed to scan parquet {}: {e}", path_owned.display());
+                return (0, None, None);
+            }
         };
 
-        let row_count = lf.clone().collect().ok().map_or(0, |df| df.height());
+        // Collect once and reuse for both row count and date extraction
+        let df = match lf.collect() {
+            Ok(df) => df,
+            Err(e) => {
+                tracing::warn!("Failed to collect parquet {}: {e}", path_owned.display());
+                return (0, None, None);
+            }
+        };
 
-        let (date_min, date_max) = if let Ok(df) = lf.collect() {
-            let col_name = if df.schema().contains(&date_col_owned) {
-                &date_col_owned
-            } else if df.schema().contains("date") {
-                "date"
-            } else if df.schema().contains("quote_date") {
-                "quote_date"
-            } else {
-                return (row_count, None, None);
-            };
+        let row_count = df.height();
 
-            let min = df
-                .column(col_name)
-                .ok()
-                .and_then(|col| col.min_reduce().ok())
-                .and_then(|s| anyvalue_to_naive_date(s.value()));
-
-            let max = df
-                .column(col_name)
-                .ok()
-                .and_then(|col| col.max_reduce().ok())
-                .and_then(|s| anyvalue_to_naive_date(s.value()));
-
-            (min, max)
+        let col_name = if df.schema().contains(&date_col_owned) {
+            &date_col_owned
+        } else if df.schema().contains("date") {
+            "date"
+        } else if df.schema().contains("quote_date") {
+            "quote_date"
         } else {
-            (None, None)
+            return (row_count, None, None);
         };
+
+        let date_min = df
+            .column(col_name)
+            .ok()
+            .and_then(|col| col.min_reduce().ok())
+            .and_then(|s| anyvalue_to_naive_date(s.value()));
+
+        let date_max = df
+            .column(col_name)
+            .ok()
+            .and_then(|col| col.max_reduce().ok())
+            .and_then(|s| anyvalue_to_naive_date(s.value()));
 
         (row_count, date_min, date_max)
     })
     .await
-    .ok()
-    .unwrap_or((0, None, None));
+    .context("Scan task panicked")?;
 
     Ok(CacheFileInfo {
         size_bytes,

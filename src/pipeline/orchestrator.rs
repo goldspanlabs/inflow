@@ -10,7 +10,7 @@ use crate::pipeline::consumer::run_writer;
 use crate::pipeline::producer::run_symbol_worker;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
 use crate::providers::DataProvider;
-use crate::utils::{extract_date_range, OPTIONS_DATE_COLUMN, PRICES_DATE_COLUMN};
+use crate::utils::{collect_blocking, extract_date_range, OPTIONS_DATE_COLUMN, PRICES_DATE_COLUMN};
 use anyhow::Result;
 use indicatif::MultiProgress;
 use std::sync::Arc;
@@ -118,7 +118,7 @@ impl Pipeline {
             };
             if let Ok(path) = path {
                 if let Ok(Some(lf)) = self.cache.read_parquet(&path).await {
-                    if let Ok(Ok(df)) = tokio::task::spawn_blocking(move || lf.collect()).await {
+                    if let Ok(df) = collect_blocking(lf).await {
                         result.total_rows = df.height();
                         result.date_range = extract_date_range(&df, date_col);
                     }

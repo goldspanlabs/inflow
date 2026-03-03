@@ -58,6 +58,7 @@ serde_json = "1.0"
 [dev-dependencies]
 tempfile = "3"
 tokio-test = "0.4"
+wiremock = "0.6"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

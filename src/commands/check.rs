@@ -2,8 +2,8 @@
 
 use crate::cache::CacheStore;
 use crate::utils::{
-    OPTIONS_CRITICAL_COLUMNS, OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS, OPTIONS_EXPECTED_COLUMNS,
-    PRICES_DATE_COLUMN, PRICES_EXPECTED_COLUMNS,
+    collect_blocking, OPTIONS_CRITICAL_COLUMNS, OPTIONS_DATE_COLUMN, OPTIONS_DEDUP_COLS,
+    OPTIONS_EXPECTED_COLUMNS, PRICES_DATE_COLUMN, PRICES_EXPECTED_COLUMNS,
 };
 use anyhow::Result;
 use chrono::{Datelike, NaiveDate};
@@ -134,11 +134,6 @@ pub async fn execute(cache: &CacheStore, symbols: &[String]) -> Result<()> {
 
     println!();
     Ok(())
-}
-
-/// Collect a `LazyFrame` on a blocking thread.
-async fn collect_blocking(lf: LazyFrame) -> Result<DataFrame> {
-    tokio::task::spawn_blocking(move || lf.collect().map_err(anyhow::Error::from)).await?
 }
 
 /// Resolve which symbols to check. If `filter` is empty, return all cached symbols.

@@ -4,15 +4,15 @@
 //!
 //! Supports incremental updates by computing resume date from cached data.
 
-mod http;
+pub mod http;
 mod parsing;
 
-pub use http::YahooHttpClient;
+pub use http::{QuoteFetcher, YahooHttpClient};
 pub use parsing::build_dataframe_from_quotes;
 
 use crate::cache::CacheStore;
 use crate::pipeline::types::{DownloadParams, DownloadResult, WindowChunk};
-use crate::utils::{compute_resume_date, extract_date_range, PRICES_DATE_COLUMN};
+use crate::utils::{collect_blocking, compute_resume_date, extract_date_range, PRICES_DATE_COLUMN};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -21,12 +21,23 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// Yahoo Finance data provider.
-pub struct YahooProvider;
+pub struct YahooProvider {
+    fetcher: Box<dyn QuoteFetcher>,
+}
 
 impl YahooProvider {
     /// Create a new Yahoo provider.
     pub fn new() -> Self {
-        Self
+        Self {
+            fetcher: Box::new(YahooHttpClient),
+        }
+    }
+
+    /// Create a provider with a custom quote fetcher (for testing).
+    #[doc(hidden)]
+    #[allow(dead_code)]
+    pub fn with_fetcher(fetcher: Box<dyn QuoteFetcher>) -> Self {
+        Self { fetcher }
     }
 }
 
@@ -80,8 +91,8 @@ impl crate::providers::DataProvider for YahooProvider {
         // Check for resume opportunity and determine period to fetch
         let fetch_period = if let Some(lf) = cached_lf.clone() {
             // Read cached data to check for resume opportunity
-            match tokio::task::spawn_blocking(move || lf.collect()).await {
-                Ok(Ok(df)) => {
+            match collect_blocking(lf).await {
+                Ok(df) => {
                     // Found cached data - compute resume date and gap
                     if let Some(resume_date) =
                         compute_resume_date(&df, PRICES_DATE_COLUMN, None, None)
@@ -131,7 +142,10 @@ impl crate::providers::DataProvider for YahooProvider {
             params.period.clone()
         };
 
-        let quotes = YahooHttpClient::fetch_quotes(&symbol_upper, &fetch_period).await?;
+        let quotes = self
+            .fetcher
+            .fetch_quotes(&symbol_upper, &fetch_period)
+            .await?;
 
         if quotes.is_empty() {
             pb.abandon_with_message("no data returned");
