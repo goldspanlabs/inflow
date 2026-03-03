@@ -139,13 +139,14 @@ impl crate::providers::DataProvider for EodhdProvider {
     async fn download(
         &self,
         symbol: &str,
-        _params: &DownloadParams,
+        params: &DownloadParams,
         cache: &CacheStore,
         tx: mpsc::Sender<WindowChunk>,
         _shutdown: CancellationToken,
     ) -> Result<DownloadResult> {
         let symbol = symbol.to_uppercase();
         let request_count_before = self.paginator.http.request_count.load(Ordering::Relaxed);
+        let explicit_range = params.from_date.is_some();
 
         let mp = MultiProgress::new();
         let bar_style = ProgressStyle::default_bar()
@@ -156,34 +157,41 @@ impl crate::providers::DataProvider for EodhdProvider {
         let mut errors: Vec<String> = Vec::new();
         let mut new_rows_total: usize = 0;
 
-        // Check cache to enable resume: find the latest quote_date for each option_type
-        let cached_options = cache
-            .read_parquet(&cache.options_path(&symbol).unwrap_or_default())
-            .await
-            .ok()
-            .flatten();
-        let cached_df = if let Some(lf) = cached_options {
-            tokio::task::spawn_blocking(move || lf.collect().ok())
+        // When explicit --from is set, skip cache/resume logic entirely
+        let (cached_df, prices_df) = if explicit_range {
+            (None, None)
+        } else {
+            // Check cache to enable resume: find the latest quote_date for each option_type
+            let cached_options = cache
+                .read_parquet(&cache.options_path(&symbol).unwrap_or_default())
                 .await
                 .ok()
-                .flatten()
-        } else {
-            None
-        };
+                .flatten();
+            let cd = if let Some(lf) = cached_options {
+                tokio::task::spawn_blocking(move || lf.collect().ok())
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
 
-        // Load prices cache for weekend-aware trading day detection
-        let cached_prices = cache
-            .read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
-            .await
-            .ok()
-            .flatten();
-        let prices_df = if let Some(lf) = cached_prices {
-            tokio::task::spawn_blocking(move || lf.collect().ok())
+            // Load prices cache for weekend-aware trading day detection
+            let cached_prices = cache
+                .read_parquet(&cache.prices_path(&symbol).unwrap_or_default())
                 .await
                 .ok()
-                .flatten()
-        } else {
-            None
+                .flatten();
+            let pd = if let Some(lf) = cached_prices {
+                tokio::task::spawn_blocking(move || lf.collect().ok())
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+
+            (cd, pd)
         };
 
         for option_type in &["call", "put"] {
@@ -191,9 +199,10 @@ impl crate::providers::DataProvider for EodhdProvider {
             pb.set_style(bar_style.clone());
             pb.set_prefix(format!("{symbol} {option_type}s"));
 
-            // Determine resume point from cache
-            let resume_from = if let Some(ref df) = cached_df {
-                // Filter to this option type and find max quote_date
+            // Determine start date: explicit --from overrides resume logic
+            let resume_from = if explicit_range {
+                params.from_date
+            } else if let Some(ref df) = cached_df {
                 compute_options_resume_date(df, option_type, prices_df.as_ref())
             } else {
                 None
@@ -201,7 +210,15 @@ impl crate::providers::DataProvider for EodhdProvider {
 
             let (new_rows, error) = self
                 .paginator
-                .fetch_all_for_type(&symbol, option_type, resume_from, &tx, &pb, cache)
+                .fetch_all_for_type(
+                    &symbol,
+                    option_type,
+                    resume_from,
+                    params.to_date,
+                    &tx,
+                    &pb,
+                    cache,
+                )
                 .await;
 
             if let Some(err) = error {

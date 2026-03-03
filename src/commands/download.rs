@@ -31,7 +31,8 @@ pub async fn execute(
     let (filtered_providers, symbols, params, concurrency) = match target {
         DownloadTarget::Options {
             symbols,
-            from: _,
+            from,
+            to,
             concurrency,
         } => {
             let opts_providers = filter_providers_by_category(&providers, "options");
@@ -42,8 +43,12 @@ pub async fn execute(
                 ));
             }
 
+            validate_date_range(from, to)?;
+
             let params = DownloadParams {
                 period: "1y".to_string(),
+                from_date: from,
+                to_date: to,
             };
 
             (opts_providers, symbols, params, concurrency)
@@ -62,18 +67,29 @@ pub async fn execute(
                 ));
             }
 
-            let params = DownloadParams { period };
+            let params = DownloadParams {
+                period,
+                from_date: None,
+                to_date: None,
+            };
 
             (prices_providers, symbols, params, concurrency)
         }
 
         DownloadTarget::All {
             symbols,
-            from: _,
+            from,
+            to,
             period,
             concurrency,
         } => {
-            let params = DownloadParams { period };
+            validate_date_range(from, to)?;
+
+            let params = DownloadParams {
+                period,
+                from_date: from,
+                to_date: to,
+            };
 
             (providers, symbols, params, concurrency)
         }
@@ -110,6 +126,26 @@ pub async fn execute(
     }
 
     Ok(results)
+}
+
+/// Validate `--from` / `--to` date range flags.
+fn validate_date_range(
+    from: Option<chrono::NaiveDate>,
+    to: Option<chrono::NaiveDate>,
+) -> Result<(), InflowError> {
+    if to.is_some() && from.is_none() {
+        return Err(InflowError::Config(
+            "--to requires --from to be specified".to_string(),
+        ));
+    }
+    if let (Some(f), Some(t)) = (from, to) {
+        if f > t {
+            return Err(InflowError::Config(format!(
+                "--from ({f}) must be on or before --to ({t})"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn print_results(results: &[DownloadResult]) {

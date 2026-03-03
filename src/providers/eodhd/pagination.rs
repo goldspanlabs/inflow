@@ -95,7 +95,7 @@ impl Paginator {
     pub fn monthly_windows(start: NaiveDate, end: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
         let mut windows = Vec::new();
         let mut cur = end;
-        while cur > start {
+        while cur >= start {
             let q_start = (cur - Duration::days(30)).max(start);
             windows.push((q_start, cur));
             cur = q_start - Duration::days(1);
@@ -367,11 +367,13 @@ impl Paginator {
     /// If `resume_from` is provided, only fetches data after that date
     /// (for resuming interrupted downloads or incremental updates).
     /// Uses cache to enable price-informed strike range recovery when offset cap is hit.
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_all_for_type(
         &self,
         symbol: &str,
         option_type: &str,
         resume_from: Option<NaiveDate>,
+        end_date: Option<NaiveDate>,
         tx: &mpsc::Sender<WindowChunk>,
         pb: &ProgressBar,
         cache: &CacheStore,
@@ -384,11 +386,11 @@ impl Paginator {
         } else {
             today - Duration::days(HISTORY_DAYS)
         };
-        let end = today;
+        let end = end_date.unwrap_or(today);
 
-        // If resume date is in the future or today, nothing to fetch
+        // If resume date is past the end date, nothing to fetch
         // (e.g., cached Friday, run Saturday, resume_from Monday → skip fetch)
-        if start >= end {
+        if start > end {
             pb.finish_with_message("up to date");
             return (0, None);
         }

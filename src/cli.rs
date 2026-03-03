@@ -44,6 +44,10 @@ pub enum DownloadTarget {
         #[arg(long, value_parser = parse_naive_date)]
         from: Option<NaiveDate>,
 
+        /// End date (YYYY-MM-DD) for download window
+        #[arg(long, value_parser = parse_naive_date)]
+        to: Option<NaiveDate>,
+
         /// Number of concurrent downloads (default: 4)
         #[arg(long, default_value = "4")]
         concurrency: usize,
@@ -71,6 +75,10 @@ pub enum DownloadTarget {
         /// Start date (YYYY-MM-DD) for options download window
         #[arg(long, value_parser = parse_naive_date)]
         from: Option<NaiveDate>,
+
+        /// End date (YYYY-MM-DD) for options download window
+        #[arg(long, value_parser = parse_naive_date)]
+        to: Option<NaiveDate>,
 
         /// Period for historical prices: 1mo, 3mo, 6mo, 1y, 5y
         #[arg(long, default_value = "5y")]

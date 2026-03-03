@@ -28,12 +28,18 @@ pub enum WindowChunk {
 pub struct DownloadParams {
     /// Period for historical data (prices): "1mo", "3mo", "6mo", "1y", "5y", "max".
     pub period: String,
+    /// Explicit start date for download window (overrides resume logic when set).
+    pub from_date: Option<NaiveDate>,
+    /// Explicit end date for download window (defaults to today when not set).
+    pub to_date: Option<NaiveDate>,
 }
 
 impl Default for DownloadParams {
     fn default() -> Self {
         Self {
             period: "1y".to_string(),
+            from_date: None,
+            to_date: None,
         }
     }
 }
