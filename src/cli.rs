@@ -3,6 +3,11 @@
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 
+/// Default concurrency for download commands.
+pub const DEFAULT_CONCURRENCY: usize = 4;
+/// Default period for historical price downloads.
+pub const DEFAULT_PERIOD: &str = "5y";
+
 #[derive(Parser, Debug)]
 #[command(name = "inflow")]
 #[command(about = "Download and cache market data for optopsy", long_about = None)]
@@ -33,7 +38,10 @@ pub enum Command {
     },
 
     /// Interactively browse available underlying symbols and trigger a download
-    List,
+    List {
+        /// Optional search filter to narrow symbols (case-insensitive substring match)
+        search: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

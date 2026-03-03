@@ -65,7 +65,7 @@ async fn main() {
             }
         }
 
-        Command::List => commands::execute_list(&config).await,
+        Command::List { search } => commands::execute_list(&config, search.as_deref()).await,
     };
 
     // Handle result
