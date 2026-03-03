@@ -520,8 +520,13 @@ fn check_prices_gaps(df: &DataFrame) -> CheckResult {
         let mut count = 1;
         while i + 1 < missing.len() {
             let next = missing[i + 1];
-            // Check if next missing day is within 3 calendar days (to handle weekends between)
-            if (next - gap_end).num_days() <= 3 {
+            // Bridge Fri→Mon (3 calendar days), otherwise require consecutive weekdays (1 day)
+            let max_gap = if gap_end.weekday() == chrono::Weekday::Fri {
+                3
+            } else {
+                1
+            };
+            if (next - gap_end).num_days() <= max_gap {
                 gap_end = next;
                 count += 1;
                 i += 1;

@@ -19,15 +19,20 @@ pub const OPTIONS_DATE_COLUMN: &str = "quote_date";
 pub const PRICES_DATE_COLUMN: &str = "date";
 
 /// Expected columns in options data (for schema validation).
+/// Matches the EODHD provider `COLUMN_MAP` output.
 pub const OPTIONS_EXPECTED_COLUMNS: &[&str] = &[
     "quote_date",
     "expiration",
     "strike",
     "option_type",
     "expiration_type",
+    "underlying_symbol",
     "bid",
     "ask",
     "last",
+    "open",
+    "high",
+    "low",
     "volume",
     "open_interest",
     "implied_volatility",
@@ -36,13 +41,16 @@ pub const OPTIONS_EXPECTED_COLUMNS: &[&str] = &[
     "theta",
     "vega",
     "rho",
-    "symbol",
+    "midpoint",
+    "moneyness",
+    "theoretical",
+    "dte",
 ];
 
 /// Critical columns in options data that must not be null.
 pub const OPTIONS_CRITICAL_COLUMNS: &[&str] = &[
     "quote_date",
-    "symbol",
+    "underlying_symbol",
     "option_type",
     "expiration",
     "strike",
