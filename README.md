@@ -2,6 +2,9 @@
 
 **Inflow** is a standalone CLI tool for downloading and caching market data (options chains from EODHD and OHLCV prices from Yahoo Finance) to populate `~/.optopsy/cache/` Parquet files — independently of the optopy-mcp MCP server.
 
+> [!NOTE]
+> This project is currently in a pre-release state. We are iterating quickly, which means breaking changes to the API and configuration may occur without prior notice. Use in production environments at your own risk.
+
 ## Features
 
 - 🚀 **Concurrent downloads** — Download multiple symbols in parallel with configurable concurrency
