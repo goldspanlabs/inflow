@@ -56,6 +56,14 @@ async fn main() {
             commands::execute_config(&config);
             Ok(())
         }
+
+        Command::Check { symbols } => {
+            let cache = cache::CacheStore::new(config.data_root.clone());
+            match commands::execute_check(&cache, &symbols).await {
+                Ok(()) => Ok(()),
+                Err(e) => Err(InflowError::Other(e)),
+            }
+        }
     };
 
     // Handle result

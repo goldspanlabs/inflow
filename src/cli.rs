@@ -24,6 +24,13 @@ pub enum Command {
 
     /// Show resolved configuration
     Config,
+
+    /// Run data quality checks on cached data
+    Check {
+        /// Symbols to check (default: all cached symbols)
+        #[arg(long, num_args = 1..)]
+        symbols: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
