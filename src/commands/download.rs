@@ -112,17 +112,8 @@ pub async fn execute(
     print_results(&results);
 
     // Check for partial failures
-    let failed_count = results.iter().filter(|r| !r.is_success()).count();
-    if failed_count > 0 && failed_count < results.len() {
-        return Err(InflowError::PartialFailure(format!(
-            "{} of {} symbols failed",
-            failed_count,
-            results.len()
-        )));
-    } else if failed_count == results.len() {
-        return Err(InflowError::PartialFailure(
-            "All downloads failed".to_string(),
-        ));
+    if let Some(err) = classify_results(&results) {
+        return Err(err);
     }
 
     Ok(results)
@@ -148,34 +139,53 @@ fn validate_date_range(
     Ok(())
 }
 
+/// Classify download results into a failure verdict.
+///
+/// Returns `None` if all succeeded, or `Some(error)` for partial/total failure.
+fn classify_results(results: &[DownloadResult]) -> Option<InflowError> {
+    let failed_count = results.iter().filter(|r| !r.is_success()).count();
+    if failed_count > 0 && failed_count < results.len() {
+        Some(InflowError::PartialFailure(format!(
+            "{} of {} symbols failed",
+            failed_count,
+            results.len()
+        )))
+    } else if failed_count == results.len() {
+        Some(InflowError::PartialFailure(
+            "All downloads failed".to_string(),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Format a single `DownloadResult` into a table row tuple.
+fn format_result_row(result: &DownloadResult) -> (String, String, usize, usize, String, String) {
+    let date_range = result
+        .date_range
+        .map(|(min, max)| format!("{min} → {max}"))
+        .unwrap_or_default();
+
+    let status = if !result.errors.is_empty() {
+        format!("✗ ({})", result.errors.join("; "))
+    } else if !result.warnings.is_empty() {
+        format!("⚠ ({})", result.warnings.join("; "))
+    } else {
+        "✓".to_string()
+    };
+
+    (
+        result.symbol.clone(),
+        result.provider.clone(),
+        result.new_rows,
+        result.total_rows,
+        date_range,
+        status,
+    )
+}
+
 fn print_results(results: &[DownloadResult]) {
-    let table_data: Vec<_> = results
-        .iter()
-        .map(|result| {
-            let date_range = result
-                .date_range
-                .map(|(min, max)| format!("{min} → {max}"))
-                .unwrap_or_default();
-
-            let status = if !result.errors.is_empty() {
-                format!("✗ ({})", result.errors.join("; "))
-            } else if !result.warnings.is_empty() {
-                format!("⚠ ({})", result.warnings.join("; "))
-            } else {
-                "✓".to_string()
-            };
-
-            (
-                result.symbol.clone(),
-                result.provider.clone(),
-                result.new_rows,
-                result.total_rows,
-                date_range,
-                status,
-            )
-        })
-        .collect();
-
+    let table_data: Vec<_> = results.iter().map(format_result_row).collect();
     let table = download_results_table(&table_data);
     println!("\n{table}\n");
 }
@@ -184,6 +194,76 @@ fn print_results(results: &[DownloadResult]) {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    fn ok_result(symbol: &str) -> DownloadResult {
+        DownloadResult::success(symbol.into(), "TEST".into(), 10, 100, None)
+    }
+
+    fn err_result(symbol: &str) -> DownloadResult {
+        DownloadResult::success(symbol.into(), "TEST".into(), 0, 0, None)
+            .with_errors(vec!["failed".into()])
+    }
+
+    // --- classify_results tests ---
+
+    #[test]
+    fn classify_all_success() {
+        let results = vec![ok_result("A"), ok_result("B")];
+        assert!(classify_results(&results).is_none());
+    }
+
+    #[test]
+    fn classify_partial_failure() {
+        let results = vec![ok_result("A"), err_result("B")];
+        let err = classify_results(&results).unwrap();
+        assert!(matches!(err, InflowError::PartialFailure(_)));
+    }
+
+    #[test]
+    fn classify_all_failed() {
+        let results = vec![err_result("A"), err_result("B")];
+        let err = classify_results(&results).unwrap();
+        match err {
+            InflowError::PartialFailure(msg) => assert!(msg.contains("All downloads failed")),
+            _ => panic!("expected PartialFailure"),
+        }
+    }
+
+    // --- format_result_row tests ---
+
+    #[test]
+    fn format_row_success() {
+        let r = ok_result("SPY");
+        let (sym, _, _, _, _, status) = format_result_row(&r);
+        assert_eq!(sym, "SPY");
+        assert_eq!(status, "✓");
+    }
+
+    #[test]
+    fn format_row_with_errors() {
+        let r = err_result("SPY");
+        let (_, _, _, _, _, status) = format_result_row(&r);
+        assert!(status.starts_with("✗"));
+    }
+
+    #[test]
+    fn format_row_with_warnings() {
+        let r = ok_result("SPY").with_warnings(vec!["stale data".into()]);
+        let (_, _, _, _, _, status) = format_result_row(&r);
+        assert!(status.starts_with("⚠"));
+    }
+
+    #[test]
+    fn format_row_with_date_range() {
+        let d1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2024, 6, 1).unwrap();
+        let r = DownloadResult::success("SPY".into(), "TEST".into(), 10, 100, Some((d1, d2)));
+        let (_, _, _, _, date_range, _) = format_result_row(&r);
+        assert!(date_range.contains("2024-01-01"));
+        assert!(date_range.contains("2024-06-01"));
+    }
+
+    // --- validate_date_range tests ---
 
     #[test]
     fn validate_both_none() {

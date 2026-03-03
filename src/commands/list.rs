@@ -55,6 +55,30 @@ async fn fetch_underlying_symbols(api_key: &str) -> Result<Vec<String>, InflowEr
     Ok(symbols)
 }
 
+/// Build a `DownloadTarget` from the user's data-type selection index.
+fn build_download_target(data_idx: usize, symbols: Vec<String>) -> DownloadTarget {
+    match data_idx {
+        0 => DownloadTarget::Options {
+            symbols,
+            from: None,
+            to: None,
+            concurrency: DEFAULT_CONCURRENCY,
+        },
+        1 => DownloadTarget::Prices {
+            symbols,
+            period: DEFAULT_PERIOD.to_string(),
+            concurrency: DEFAULT_CONCURRENCY,
+        },
+        _ => DownloadTarget::All {
+            symbols,
+            from: None,
+            to: None,
+            period: DEFAULT_PERIOD.to_string(),
+            concurrency: DEFAULT_CONCURRENCY,
+        },
+    }
+}
+
 /// Filter symbols by an optional case-insensitive query.
 fn filter_symbols<'a>(symbols: &'a [String], query: Option<&str>) -> Vec<&'a String> {
     if let Some(q) = query {
@@ -142,28 +166,7 @@ pub async fn execute(config: &Config, search: Option<&str>) -> Result<(), Inflow
         .interact()
         .map_err(|e| InflowError::Other(anyhow::anyhow!("Data type selection failed: {e}")))?;
 
-    // --- build DownloadTarget and delegate to the download command ---
-    let target = match data_idx {
-        0 => DownloadTarget::Options {
-            symbols: selected_symbols,
-            from: None,
-            to: None,
-            concurrency: DEFAULT_CONCURRENCY,
-        },
-        1 => DownloadTarget::Prices {
-            symbols: selected_symbols,
-            period: DEFAULT_PERIOD.to_string(),
-            concurrency: DEFAULT_CONCURRENCY,
-        },
-        _ => DownloadTarget::All {
-            symbols: selected_symbols,
-            from: None,
-            to: None,
-            period: DEFAULT_PERIOD.to_string(),
-            concurrency: DEFAULT_CONCURRENCY,
-        },
-    };
-
+    let target = build_download_target(data_idx, selected_symbols);
     super::download::execute(config, target).await.map(|_| ())
 }
 
@@ -199,5 +202,32 @@ mod tests {
         let syms = symbols();
         let result = filter_symbols(&syms, Some("A"));
         assert_eq!(result.len(), 2); // AAPL, AMZN
+    }
+
+    // --- build_download_target tests ---
+
+    #[test]
+    fn build_target_options() {
+        let target = build_download_target(0, vec!["SPY".into()]);
+        assert!(
+            matches!(target, DownloadTarget::Options { symbols, .. } if symbols == vec!["SPY"])
+        );
+    }
+
+    #[test]
+    fn build_target_prices() {
+        let target = build_download_target(1, vec!["SPY".into()]);
+        assert!(
+            matches!(target, DownloadTarget::Prices { symbols, period, .. } if symbols == vec!["SPY"] && period == DEFAULT_PERIOD)
+        );
+    }
+
+    #[test]
+    fn build_target_all_for_any_other_index() {
+        let target = build_download_target(2, vec!["SPY".into()]);
+        assert!(matches!(target, DownloadTarget::All { symbols, .. } if symbols == vec!["SPY"]));
+        // Any index >= 2 should also produce All
+        let target = build_download_target(99, vec!["QQQ".into()]);
+        assert!(matches!(target, DownloadTarget::All { .. }));
     }
 }
