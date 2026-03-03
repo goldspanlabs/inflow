@@ -14,12 +14,15 @@ pub const MIN_REQUEST_INTERVAL_MS: u64 = 100;
 pub const RATE_LIMIT_SLOW_THRESHOLD: u32 = 50;
 
 /// Returns the backoff duration for a given wait time in seconds.
-/// Under `cfg(test)`, returns zero to avoid real sleeps in integration tests.
-#[cfg(not(test))]
+///
+/// In normal builds, returns a real duration. When the `test-fast-backoff`
+/// feature is enabled (or in unit tests via `cfg(test)`), returns zero
+/// to avoid real sleeps in tests.
+#[cfg(not(any(test, feature = "test-fast-backoff")))]
 fn backoff_duration(secs: u64) -> std::time::Duration {
     std::time::Duration::from_secs(secs)
 }
-#[cfg(test)]
+#[cfg(any(test, feature = "test-fast-backoff"))]
 fn backoff_duration(_secs: u64) -> std::time::Duration {
     std::time::Duration::ZERO
 }
