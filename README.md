@@ -24,7 +24,7 @@ cd inflow
 cargo install --path .
 
 # 2. Configure (optional — only needed for options data)
-echo "EODHD_API_KEY=your_api_key_here" >> ~/.env
+export EODHD_API_KEY=your_api_key_here
 
 # 3. Download data
 inflow download prices SPY          # no API key needed
@@ -54,13 +54,7 @@ This builds a release binary and installs it to `~/.cargo/bin/` (which should al
 
 ## Configuration
 
-Inflow loads configuration from environment variables and `.env` files:
-
-1. `~/.env` (home directory)
-2. `./.env` (current directory)
-3. Environment variables
-
-### Configuration Variables
+### Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -68,18 +62,13 @@ Inflow loads configuration from environment variables and `.env` files:
 | `EODHD_API_KEY` | (none) | EODHD API key; if unset, EODHD provider is disabled |
 | `EODHD_RATE_LIMIT` | `10` | EODHD rate limit in requests/second |
 
-### Example `.env` File
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist across sessions:
 
-```env
-# Cache directory
-DATA_ROOT=~/.optopsy/cache
-
-# EODHD API (obtain from https://eodhd.com)
-EODHD_API_KEY=your_api_key_here
-
-# Rate limit (requests per second)
-EODHD_RATE_LIMIT=10
+```bash
+export EODHD_API_KEY=your_api_key_here
 ```
+
+> **Development:** Inflow also loads `.env` files from the home directory (`~/.env`) and current directory (`./.env`).
 
 ## Usage
 
