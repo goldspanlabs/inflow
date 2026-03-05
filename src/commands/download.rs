@@ -257,7 +257,14 @@ mod tests {
     fn format_row_with_date_range() {
         let d1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
         let d2 = NaiveDate::from_ymd_opt(2024, 6, 1).unwrap();
-        let r = DownloadResult::success("SPY".into(), "TEST".into(), "prices".into(), 10, 100, Some((d1, d2)));
+        let r = DownloadResult::success(
+            "SPY".into(),
+            "TEST".into(),
+            "prices".into(),
+            10,
+            100,
+            Some((d1, d2)),
+        );
         let (_, _, _, _, date_range, _) = format_result_row(&r);
         assert!(date_range.contains("2024-01-01"));
         assert!(date_range.contains("2024-06-01"));

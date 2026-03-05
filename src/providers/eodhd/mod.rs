@@ -136,9 +136,14 @@ impl crate::providers::DataProvider for EodhdProvider {
 
         // Note: total_rows and date_range are populated by the orchestrator
         // after the consumer finishes writing to cache.
-        Ok(
-            DownloadResult::success(symbol, self.name().to_string(), self.category().to_string(), new_rows_total, 0, None)
-                .with_warnings(errors),
+        Ok(DownloadResult::success(
+            symbol,
+            self.name().to_string(),
+            self.category().to_string(),
+            new_rows_total,
+            0,
+            None,
         )
+        .with_warnings(errors))
     }
 }

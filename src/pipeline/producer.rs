@@ -24,8 +24,15 @@ pub async fn run_symbol_worker(
 ) -> DownloadResult {
     // Acquire semaphore slot
     let Ok(_permit) = semaphore.acquire().await else {
-        return DownloadResult::success(symbol, provider.name().to_string(), provider.category().to_string(), 0, 0, None)
-            .with_errors(vec!["Semaphore acquisition failed".to_string()]);
+        return DownloadResult::success(
+            symbol,
+            provider.name().to_string(),
+            provider.category().to_string(),
+            0,
+            0,
+            None,
+        )
+        .with_errors(vec!["Semaphore acquisition failed".to_string()]);
     };
 
     match provider
@@ -33,7 +40,14 @@ pub async fn run_symbol_worker(
         .await
     {
         Ok(result) => result,
-        Err(e) => DownloadResult::success(symbol, provider.name().to_string(), provider.category().to_string(), 0, 0, None)
-            .with_errors(vec![e.to_string()]),
+        Err(e) => DownloadResult::success(
+            symbol,
+            provider.name().to_string(),
+            provider.category().to_string(),
+            0,
+            0,
+            None,
+        )
+        .with_errors(vec![e.to_string()]),
     }
 }
