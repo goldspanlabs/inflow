@@ -111,7 +111,7 @@ impl Pipeline {
 
         // Now that the consumer has finished writing, populate total_rows and date_range
         for result in &mut results {
-            let (date_col, path) = if result.provider == "EODHD" {
+            let (date_col, path) = if result.category == "options" {
                 (OPTIONS_DATE_COLUMN, self.cache.options_path(&result.symbol))
             } else {
                 (PRICES_DATE_COLUMN, self.cache.prices_path(&result.symbol))

@@ -53,6 +53,9 @@ pub struct DownloadResult {
     /// Provider name (e.g., "EODHD", "Yahoo").
     pub provider: String,
 
+    /// Category of data (e.g., "options", "prices").
+    pub category: String,
+
     /// Number of new rows downloaded in this operation.
     pub new_rows: usize,
 
@@ -74,6 +77,7 @@ impl DownloadResult {
     pub fn success(
         symbol: String,
         provider: String,
+        category: String,
         new_rows: usize,
         total_rows: usize,
         date_range: Option<(NaiveDate, NaiveDate)>,
@@ -81,6 +85,7 @@ impl DownloadResult {
         Self {
             symbol,
             provider,
+            category,
             new_rows,
             total_rows,
             date_range,

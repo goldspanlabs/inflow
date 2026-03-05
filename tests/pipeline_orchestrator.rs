@@ -24,26 +24,21 @@ use tokio_util::sync::CancellationToken;
 // ---------------------------------------------------------------------------
 
 /// A mock options provider that sends canned OptionsWindow chunks.
-///
-/// Uses "EODHD" as the provider name so the orchestrator's post-write
-/// logic (which hardcodes `provider == "EODHD"`) reads from the options path.
-// TODO(#4): Rename to "MockOptions" once orchestrator uses category instead of provider name.
-struct MockOptionsProvider {
+struct MockOptions {
     /// Rows to generate per symbol. Each row gets a distinct quote_date.
     rows_per_symbol: usize,
 }
 
-impl MockOptionsProvider {
+impl MockOptions {
     fn new(rows_per_symbol: usize) -> Self {
         Self { rows_per_symbol }
     }
 }
 
 #[async_trait]
-impl DataProvider for MockOptionsProvider {
+impl DataProvider for MockOptions {
     fn name(&self) -> &'static str {
-        // TODO(#4): Change to "MockOptions" once orchestrator uses category.
-        "EODHD"
+        "MockOptions"
     }
 
     fn category(&self) -> &'static str {
@@ -81,6 +76,7 @@ impl DataProvider for MockOptionsProvider {
         Ok(DownloadResult::success(
             symbol.to_uppercase(),
             self.name().to_string(),
+            self.category().to_string(),
             rows,
             0, // total_rows populated by orchestrator post-write
             None,
@@ -128,6 +124,7 @@ impl DataProvider for MockPricesProvider {
         Ok(DownloadResult::success(
             symbol.to_uppercase(),
             self.name().to_string(),
+            self.category().to_string(),
             rows,
             0,
             None,
@@ -187,6 +184,7 @@ impl DataProvider for MockEmptyProvider {
         Ok(DownloadResult::success(
             symbol.to_uppercase(),
             self.name().to_string(),
+            self.category().to_string(),
             0,
             0,
             None,
@@ -248,6 +246,7 @@ impl DataProvider for MockConcurrencyTracker {
         Ok(DownloadResult::success(
             symbol.to_uppercase(),
             self.name().to_string(),
+            self.category().to_string(),
             1,
             0,
             None,
@@ -263,7 +262,7 @@ impl DataProvider for MockConcurrencyTracker {
 async fn test_pipeline_single_options_provider_single_symbol() {
     let cache = common::temp_cache();
     let pipeline = Pipeline {
-        providers: vec![Arc::new(MockOptionsProvider::new(5))],
+        providers: vec![Arc::new(MockOptions::new(5))],
         cache: Arc::clone(&cache),
         symbols: vec!["SPY".to_string()],
         params: DownloadParams::default(),
@@ -274,7 +273,7 @@ async fn test_pipeline_single_options_provider_single_symbol() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].symbol, "SPY");
-    assert_eq!(results[0].provider, "EODHD");
+    assert_eq!(results[0].provider, "MockOptions");
     assert!(results[0].is_success());
     assert_eq!(results[0].new_rows, 5);
 
@@ -355,7 +354,7 @@ async fn test_pipeline_multiple_providers_same_symbol() {
     // Both an options and prices provider for the same symbol
     let pipeline = Pipeline {
         providers: vec![
-            Arc::new(MockOptionsProvider::new(3)),
+            Arc::new(MockOptions::new(3)),
             Arc::new(MockPricesProvider::new(7)),
         ],
         cache: Arc::clone(&cache),
@@ -371,7 +370,7 @@ async fn test_pipeline_multiple_providers_same_symbol() {
 
     let providers: std::collections::HashSet<String> =
         results.iter().map(|r| r.provider.clone()).collect();
-    assert!(providers.contains("EODHD"));
+    assert!(providers.contains("MockOptions"));
     assert!(providers.contains("MockPrices"));
 
     // Both files should exist

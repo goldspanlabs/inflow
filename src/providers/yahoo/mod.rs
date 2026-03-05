@@ -108,6 +108,7 @@ impl crate::providers::DataProvider for YahooProvider {
                             return Ok(DownloadResult::success(
                                 symbol_upper,
                                 self.name().to_string(),
+                                self.category().to_string(),
                                 0,
                                 df.height(),
                                 extract_date_range(&df, PRICES_DATE_COLUMN),
@@ -170,6 +171,7 @@ impl crate::providers::DataProvider for YahooProvider {
         Ok(DownloadResult::success(
             symbol_upper,
             self.name().to_string(),
+            self.category().to_string(),
             new_rows,
             0,
             None,
